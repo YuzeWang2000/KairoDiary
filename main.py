@@ -6,7 +6,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QCalendarWidget, QListWidget, QTextEdit, QLineEdit, QListWidgetItem,
-    QMessageBox, QInputDialog, QFileDialog, QLabel, QMenu
+    QMessageBox, QInputDialog, QFileDialog, QLabel, QMenu, QCheckBox
 )
 from PyQt6.QtCore import Qt, QDate, QSettings, pyqtSignal
 from PyQt6.QtGui import QFont, QAction, QIcon, QTextCursor, QColor
@@ -16,132 +16,325 @@ from PyQt6.QtCore import QFileSystemWatcher
 # 文件管理器
 # ======================
 class FileManager:
-    def __init__(self, base_path):
-        self.base_path = base_path
-        os.makedirs(os.path.join(base_path, "Diary"), exist_ok=True)
-        os.makedirs(os.path.join(base_path, "QuickNote"), exist_ok=True)
+    def __init__(self, base_path, username):
+        self.username = username
+        self.user_base_path = os.path.join(base_path, username)
+        os.makedirs(self.user_base_path, exist_ok=True)
         
-        self.config_path = os.path.join(base_path, "config.json")
+        # 创建用户专属目录结构
+        os.makedirs(os.path.join(self.user_base_path, "Diary"), exist_ok=True)
+        os.makedirs(os.path.join(self.user_base_path, "QuickNote"), exist_ok=True)
+        
+        self.config_path = os.path.join(self.user_base_path, "config.json")
         self.init_config()
         
     def init_config(self):
+        """初始化用户的配置文件"""
         if not os.path.exists(self.config_path):
             default_config = {
                 "tags": ["工作", "学习", "生活", "重要"],
                 "default_view": "Diary",
-                "last_login": None
+                "last_access": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "theme": "system"  # 添加用户主题偏好
             }
             self.save_config(default_config)
     
     def load_config(self):
+        """加载用户配置"""
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return {}
+                config = json.load(f)
+                # 更新上次访问时间
+                config["last_access"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self.save_config(config)
+                return config
+        except Exception as e:
+            print(f"加载配置失败: {e}")
+            return self.init_config() or {}
     
     def save_config(self, config):
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+        """保存用户配置"""
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+            return False
     
     def get_diary_path(self, date=None):
+        """获取指定日期的日记文件路径"""
         if date is None:
             date = QDate.currentDate()
         year = str(date.year())
         month = str(date.month()).zfill(2)
-        diary_dir = os.path.join(self.base_path, "Diary", year, month)
+        diary_dir = os.path.join(self.user_base_path, "Diary", year, month)
         os.makedirs(diary_dir, exist_ok=True)
         return os.path.join(diary_dir, f"{date.toString('yyyy-MM-dd')}.md")
     
     def get_note_path(self, title, date=None):
+        """获取笔记文件路径"""
         if date is None:
             date = datetime.now()
-        filename = f"{date.strftime('%Y%m%d')}_{title.replace(' ', '_')}.md"
-        return os.path.join(self.base_path, "QuickNote", filename)
+        # 限制文件名长度避免路径过长
+        sanitized_title = title[:50].replace(' ', '_').replace('.', '')
+        filename = f"{date.strftime('%Y%m%d')}_{sanitized_title}.md"
+        return os.path.join(self.user_base_path, "QuickNote", filename)
     
     def save_diary(self, date, content):
+        """保存日记内容"""
         path = self.get_diary_path(date)
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return True
+        except Exception as e:
+            print(f"保存日记失败: {e}")
+            return False
     
     def load_diary(self, date):
+        """加载日记内容"""
         path = self.get_diary_path(date)
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
-        return ""
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            return ""
+        except Exception as e:
+            print(f"加载日记失败: {e}")
+            return ""
     
     def save_note(self, title, content):
+        """保存快速笔记"""
         path = self.get_note_path(title)
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(f"# {title}\n\n")
-            f.write(f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
-            f.write(content)
-        return path
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(f"# {title}\n\n")
+                f.write(f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+                f.write(content)
+            return path
+        except Exception as e:
+            print(f"保存笔记失败: {e}")
+            return None
     
     def load_note(self, path):
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
-        return ""
+        """加载笔记内容"""
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            return ""
+        except Exception as e:
+            print(f"加载笔记失败: {e}")
+            return ""
     
     def list_notes(self):
-        notes_dir = os.path.join(self.base_path, "QuickNote")
-        return [os.path.join(notes_dir, f) for f in os.listdir(notes_dir) 
-                if f.endswith('.md')]
+        """列出所有笔记文件"""
+        notes_dir = os.path.join(self.user_base_path, "QuickNote")
+        try:
+            return [os.path.join(notes_dir, f) for f in os.listdir(notes_dir) 
+                    if f.endswith('.md') and os.path.isfile(os.path.join(notes_dir, f))]
+        except FileNotFoundError:
+            # 目录不存在时创建
+            os.makedirs(notes_dir, exist_ok=True)
+            return []
+    
+    def migrate_old_data(self):
+        """迁移旧版数据（如果需要）"""
+        # 如果有旧版本数据迁移逻辑可在此实现
+        pass
+
 
 # ======================
 # 账户管理器
 # ======================
 class AccountManager:
-    def __init__(self, file_manager):
-        self.file_manager = file_manager
-        self.config = self.file_manager.load_config()
-        self.users = self.config.get("users", {})
-        
+    def __init__(self, base_path):
+        self.base_path = base_path
+        os.makedirs(base_path, exist_ok=True)
+        self.global_config_path = os.path.join(base_path, "global_config.json")
+        self.init_global_config()
+    
+    def init_global_config(self):
+        """初始化全局配置文件"""
+        if not os.path.exists(self.global_config_path):
+            default_config = {
+                "users": {},
+                "last_login": None,
+                "system_settings": {}
+            }
+            self.save_global_config(default_config)
+    
+    def load_global_config(self):
+        """加载全局配置"""
+        try:
+            with open(self.global_config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            # 文件损坏或不存在时重新初始化
+            return self.init_global_config() or {}
+    
+    def save_global_config(self, config):
+        """保存全局配置"""
+        try:
+            with open(self.global_config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"保存全局配置失败: {e}")
+            return False
+    
     def register(self, username, password):
-        if username in self.users:
+        """注册新用户"""
+        config = self.load_global_config()
+        
+        # 验证用户名唯一性
+        if username in config.get("users", {}):
             return False, "用户名已存在"
         
+        # 验证用户名有效性
+        if not username or any(char in username for char in ' \\/:'):
+            return False, "用户名包含非法字符"
+        
+        # 验证密码强度
+        if len(password) < 6:
+            return False, "密码长度至少需要6个字符"
+        
+        # 安全存储密码
         salt = os.urandom(16)
-        key = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
-        self.users[username] = {
+        iterations = 150000  # 适当增加迭代次数增强安全性
+        key = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, iterations)
+        
+        # 更新配置
+        config.setdefault("users", {})[username] = {
             'salt': salt.hex(),
-            'key': key.hex()
+            'key': key.hex(),
+            'iterations': iterations,
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M"),
+            'diary_count': 0,
+            'note_count': 0
         }
-        self.config["users"] = self.users
-        self.file_manager.save_config(self.config)
-        return True, "注册成功"
+        
+        # 设置为新用户
+        config["last_login"] = username
+        
+        # 保存配置
+        if self.save_global_config(config):
+            return True, "注册成功"
+        return False, "注册失败，无法保存配置"
     
     def login(self, username, password):
-        if username not in self.users:
+        """用户登录"""
+        config = self.load_global_config()
+        
+        # 验证用户是否存在
+        if username not in config.get("users", {}):
             return False, "用户不存在"
         
-        user = self.users[username]
-        salt = bytes.fromhex(user['salt'])
-        key = bytes.fromhex(user['key'])
-        new_key = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        user_data = config["users"][username]
         
-        if key == new_key:
-            self.config["last_login"] = username
-            self.file_manager.save_config(self.config)
+        # 获取密码相关参数
+        salt = bytes.fromhex(user_data['salt'])
+        stored_key = bytes.fromhex(user_data['key'])
+        iterations = user_data.get('iterations', 100000)  # 兼容旧版本
+        
+        # 计算输入密码的哈希
+        new_key = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, iterations)
+        
+        # 安全比较密码哈希
+        if self.safe_compare(stored_key, new_key):
+            # 更新登录时间和次数
+            user_data.setdefault('login_count', 0)
+            user_data['login_count'] += 1
+            user_data['last_login'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            
+            
+            # 保存更新
+            self.save_global_config(config)
+            
+            # 检查用户数据目录是否存在
+            user_dir = os.path.join(self.base_path, "users", username)
+            os.makedirs(user_dir, exist_ok=True)
+            
             return True, "登录成功"
+            
         return False, "密码错误"
-
+    
+    def safe_compare(self, a, b):
+        """安全比较两个字节序列 (防御时序攻击)"""
+        if len(a) != len(b):
+            return False
+            
+        result = 0
+        for x, y in zip(a, b):
+            result |= x ^ y
+        return result == 0
+    
+    def list_users(self):
+        """获取所有用户列表"""
+        config = self.load_global_config()
+        return list(config.get("users", {}).keys())
+    
+    def get_user_info(self, username):
+        """获取用户信息"""
+        config = self.load_global_config()
+        user = config.get("users", {}).get(username)
+        if user:
+            return {
+                'username': username,
+                'created_at': user.get('created_at'),
+                'last_login': user.get('last_login'),
+                'login_count': user.get('login_count', 0),
+                'diary_count': user.get('diary_count', 0),
+                'note_count': user.get('note_count', 0)
+            }
+        return None
+    
+    def change_password(self, username, old_password, new_password):
+        """更改用户密码"""
+        success, message, _ = self.login(username, old_password)
+        if not success:
+            return False, message
+            
+        config = self.load_global_config()
+        user_data = config["users"][username]
+        
+        # 更新密码哈希
+        salt = bytes.fromhex(user_data['salt'])
+        iterations = user_data.get('iterations', 150000)
+        key = hashlib.pbkdf2_hmac('sha256', new_password.encode(), salt, iterations)
+        
+        user_data['key'] = key.hex()
+        
+        if self.save_global_config(config):
+            return True, "密码更改成功"
+        return False, "密码更改失败，无法保存配置"
+    
+    def get_last_login(self):
+        """获取上次登录的用户名"""
+        config = self.load_global_config()
+        return config.get("last_login")
+    
+    def set_last_login(self, username):
+        """设置最后登录的用户名"""
+        config = self.load_global_config()
+        config["last_login"] = username
+        self.save_global_config(config)
+    
 # ======================
 # 界面组件
 # ======================
 class LoginWindow(QWidget):
-    login_success = pyqtSignal()
-    
+    login_success = pyqtSignal(str)
     def __init__(self, account_manager):
         super().__init__()
         self.account_manager = account_manager
         self.init_ui()
+        self.load_last_login()
         
     def init_ui(self):
         self.setWindowTitle("KairoDiary - 登录")
-        self.setFixedSize(400, 300)
+        self.setFixedSize(400, 400)
         
         layout = QVBoxLayout()
         
@@ -163,6 +356,11 @@ class LoginWindow(QWidget):
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setStyleSheet("padding: 10px; font-size: 14px;")
         
+        # 记住我复选框
+        self.remember_check = QCheckBox("记住我")
+        self.remember_check.setChecked(True)
+        self.remember_check.setStyleSheet("padding: 5px;")
+
         # 按钮
         login_btn = QPushButton("登录")
         login_btn.setStyleSheet("""
@@ -187,25 +385,42 @@ class LoginWindow(QWidget):
         layout.addWidget(title)
         layout.addWidget(self.username_input)
         layout.addWidget(self.password_input)
+        layout.addWidget(self.remember_check)
         layout.addWidget(login_btn)
         layout.addWidget(register_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         
         self.setLayout(layout)
     
     def handle_login(self):
-        username = self.username_input.text()
+        username = self.username_input.text().strip()
         password = self.password_input.text()
         
         if not username or not password:
             QMessageBox.warning(self, "输入错误", "用户名和密码不能为空")
             return
-            
+        
+        print(self.account_manager.login(username, password))
+
         success, message = self.account_manager.login(username, password)
+
         if success:
-            self.login_success.emit()
+            # 如果勾选了"记住我"，保存用户名
+            if self.remember_check.isChecked():
+                self.account_manager.set_last_login(username)
+            
+            # 发射信号，传递用户名和FileManager
+            self.login_success.emit(username)
         else:
             QMessageBox.critical(self, "登录失败", message)
-    
+            self.password_input.clear()  # 清空密码框
+
+    def load_last_login(self):
+        """加载上次登录的用户名"""
+        last_login = self.account_manager.get_last_login()
+        if last_login:
+            self.username_input.setText(last_login)
+            self.password_input.setFocus()  # 密码框获得焦点
+
     def show_register_dialog(self):
         username, ok1 = QInputDialog.getText(self, "注册新用户", "用户名:")
         password, ok2 = QInputDialog.getText(self, "注册新用户", "密码:", QLineEdit.EchoMode.Password)
@@ -214,20 +429,27 @@ class LoginWindow(QWidget):
             success, message = self.account_manager.register(username, password)
             if success:
                 QMessageBox.information(self, "注册成功", "账户已创建，请登录")
+                # 自动填充新注册的用户名
+                self.username_input.setText(username)
+                self.password_input.setFocus()
             else:
                 QMessageBox.critical(self, "注册失败", message)
 
 class MainWindow(QMainWindow):
-    def __init__(self, file_manager):
+    def __init__(self, username, file_manager):
         super().__init__()
+        self.username = username
         self.file_manager = file_manager
         self.current_date = QDate.currentDate()
         self.init_ui()
         
     def init_ui(self):
-        self.setWindowTitle("KairoDiary")
+        self.setWindowTitle(f"KairoDiary - {self.username}")
         self.setGeometry(100, 100, 1000, 700)
         
+        # 在状态栏显示用户名
+        self.statusBar().showMessage(f"欢迎回来，{self.username}")
+
         # 主布局
         main_widget = QWidget()
         main_layout = QVBoxLayout()
@@ -246,11 +468,10 @@ class MainWindow(QMainWindow):
             btn.setMinimumHeight(40)
             btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #F0F0F0;
                     border: none;
                     padding: 10px 20px;
                     font-size: 16px;
-                    border-radius: 6px;
+                    border-radius: 6px;        
                 }
                 QPushButton:checked {
                     background-color: #5D3FD3;
@@ -320,11 +541,9 @@ class DiaryView(QWidget):
         self.calendar.setGridVisible(True)
         self.calendar.setStyleSheet("""
             QCalendarWidget {
-                background-color: white;
                 border-radius: 8px;
             }
             QCalendarWidget QWidget {
-                alternate-background-color: white;
             }
             QToolButton::menu-indicator {
                 width: 0px;
@@ -372,21 +591,6 @@ class DiaryEditor(QWidget):
         todo_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         
         self.todo_list = QListWidget()
-        self.todo_list.setStyleSheet("""
-            QListWidget {
-                background-color: #F8F9FA;
-                border: 1px solid #E0E0E0;
-                border-radius: 6px;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #EEEEEE;
-            }
-            QListWidget::item:selected {
-                background-color: #EDE7F6;
-            }
-        """)
         
         todo_layout.addWidget(todo_label)
         todo_layout.addWidget(self.todo_list)
@@ -409,15 +613,6 @@ class DiaryEditor(QWidget):
         summary_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         
         self.summary_edit = QTextEdit()
-        self.summary_edit.setStyleSheet("""
-            QTextEdit {
-                background-color: #F8F9FA;
-                border: 1px solid #E0E0E0;
-                border-radius: 6px;
-                padding: 10px;
-                font-size: 14px;
-            }
-        """)
         self.summary_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.summary_edit.customContextMenuRequested.connect(self.show_context_menu)
         
@@ -657,21 +852,21 @@ class TodayTODOView(QWidget):
         
         # 任务列表
         self.task_list = QListWidget()
-        self.task_list.setStyleSheet("""
-            QListWidget {
-                background-color: white;
-                border-radius: 8px;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 15px;
-                border-bottom: 1px solid #EEEEEE;
-                font-size: 14px;
-            }
-            QListWidget::item:selected {
-                background-color: #EDE7F6;
-            }
-        """)
+        # self.task_list.setStyleSheet("""
+        #     QListWidget {
+        #         background-color: white;
+        #         border-radius: 8px;
+        #         padding: 5px;
+        #     }
+        #     QListWidget::item {
+        #         padding: 15px;
+        #         border-bottom: 1px solid #EEEEEE;
+        #         font-size: 14px;
+        #     }
+        #     QListWidget::item:selected {
+        #         background-color: #EDE7F6;
+        #     }
+        # """)
         
         # 添加新任务区域
         add_task_layout = QHBoxLayout()
@@ -832,19 +1027,19 @@ class QuickNoteView(QWidget):
         
         # 笔记列表
         self.notes_list = QListWidget()
-        self.notes_list.setStyleSheet("""
-            QListWidget {
-                background-color: white;
-                border-radius: 8px;
-            }
-            QListWidget::item {
-                padding: 15px;
-                border-bottom: 1px solid #EEEEEE;
-            }
-            QListWidget::item:selected {
-                background-color: #EDE7F6;
-            }
-        """)
+        # self.notes_list.setStyleSheet("""
+        #     QListWidget {
+        #         background-color: white;
+        #         border-radius: 8px;
+        #     }
+        #     QListWidget::item {
+        #         padding: 15px;
+        #         border-bottom: 1px solid #EEEEEE;
+        #     }
+        #     QListWidget::item:selected {
+        #         background-color: #EDE7F6;
+        #     }
+        # """)
         self.notes_list.itemClicked.connect(self.open_note)
         
         # 设置全局快捷键（在实际应用中需绑定系统快捷键）
@@ -906,28 +1101,26 @@ def main():
     documents_path = os.path.join(os.path.expanduser("~"), "MyDocuments")
     base_path = os.path.join(documents_path, "KairoDiaryData")
     
-    file_manager = FileManager(base_path)
-    account_manager = AccountManager(file_manager)
-    
-    # 检查上次登录用户
-    config = file_manager.load_config()
-    last_login = config.get("last_login")
-    
-    if last_login:
-        # 如果存在上次登录用户，直接进入主界面
-        main_win = MainWindow(file_manager)
+    account_manager = AccountManager(base_path)
+    login_win = LoginWindow(account_manager)
+    test = True
+    if test:
+        username = "test"
+        file_manager = FileManager(base_path, username)
+        main_win = MainWindow(username, file_manager)
         main_win.show()
+
     else:
-        # 否则显示登录窗口
-        login_win = LoginWindow(account_manager)
-        
-        def on_login_success():
-            login_win.close()
-            main_win = MainWindow(file_manager)
-            main_win.show()
-        
+        def on_login_success(username):
+                login_win.close()
+                file_manager = FileManager(base_path, username)
+                main_win = MainWindow(username, file_manager)
+                main_win.show()
+            
         login_win.login_success.connect(on_login_success)
         login_win.show()
+        
+        
     
     sys.exit(app.exec())
 
