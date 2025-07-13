@@ -6,11 +6,10 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QCalendarWidget, QListWidget, QTextEdit, QLineEdit, QListWidgetItem,
-    QMessageBox, QInputDialog, QFileDialog, QLabel, QMenu, QCheckBox
+    QMessageBox, QInputDialog, QFileDialog, QLabel, QMenu, QCheckBox, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QDate, QSettings, pyqtSignal
-from PyQt6.QtGui import QFont, QAction, QIcon, QTextCursor, QColor
-from PyQt6.QtCore import QFileSystemWatcher
+from PyQt6.QtCore import Qt, QDate, QSettings, pyqtSignal, QFileSystemWatcher, QSize, QDateTime
+from PyQt6.QtGui import QFont, QAction, QIcon, QTextCursor, QColor, QTextCharFormat
 
 # ======================
 # 文件管理器
@@ -143,6 +142,25 @@ class FileManager:
         """迁移旧版数据（如果需要）"""
         # 如果有旧版本数据迁移逻辑可在此实现
         pass
+
+    def get_diary_dates_for_month(self, year, month):
+        """获取指定月份有日记的日期列表"""
+        diary_dir = os.path.join(self.user_base_path, "Diary", str(year), f"{month:02d}")
+        dates = []
+        
+        if os.path.exists(diary_dir):
+            for file in os.listdir(diary_dir):
+                if file.endswith('.md'):
+                    try:
+                        # 从文件名提取日期
+                        date_str = file.split('.')[0]
+                        date = QDate.fromString(date_str, "yyyy-MM-dd")
+                        if date.isValid():
+                            dates.append(date)
+                    except:
+                        continue
+        
+        return dates
 
 
 # ======================
@@ -458,11 +476,11 @@ class MainWindow(QMainWindow):
         nav_layout = QHBoxLayout()
         nav_layout.setContentsMargins(10, 10, 10, 10)
         
-        self.diary_btn = QPushButton("日记")
         self.today_btn = QPushButton("今日待办")
+        self.calendar_btn = QPushButton("日历")
         self.note_btn = QPushButton("快速笔记")
         
-        nav_buttons = [self.diary_btn, self.today_btn, self.note_btn]
+        nav_buttons = [self.calendar_btn, self.today_btn, self.note_btn]
         for btn in nav_buttons:
             btn.setCheckable(True)
             btn.setMinimumHeight(40)
@@ -478,23 +496,34 @@ class MainWindow(QMainWindow):
                     color: white;
                 }
             """)
-        
-        nav_layout.addWidget(self.diary_btn)
         nav_layout.addWidget(self.today_btn)
+        nav_layout.addWidget(self.calendar_btn)
         nav_layout.addWidget(self.note_btn)
         
         # 视图切换区域
         self.stacked_widget = QStackedWidget()
+
+        # 创建日历视图
+        self.calendar_view = CalendarView(self.file_manager)
+        self.calendar_view.date_selected.connect(self.open_diary)
+
         self.diary_view = DiaryView(self.file_manager)
+        # 连接返回信号
+        self.diary_view.back_to_calendar.connect(self.switch_to_calendar)
+        self.diary_view.editor.diary_saved.connect(self.show_diary_saved_message)
+        
         self.today_view = TodayTODOView(self.file_manager)
+        self.today_view.diary_saved.connect(self.show_diary_saved_message)
         self.notes_view = QuickNoteView(self.file_manager)
         
-        self.stacked_widget.addWidget(self.diary_view)
+        self.stacked_widget.addWidget(self.calendar_view)
         self.stacked_widget.addWidget(self.today_view)
-        self.stacked_widget.addWidget(self.notes_view)
+        self.stacked_widget.addWidget(self.notes_view)  
+        self.stacked_widget.addWidget(self.diary_view)
+
         
         # 信号连接
-        self.diary_btn.clicked.connect(lambda: self.switch_view(0))
+        self.calendar_btn.clicked.connect(lambda: self.switch_view(0))
         self.today_btn.clicked.connect(lambda: self.switch_view(1))
         self.note_btn.clicked.connect(lambda: self.switch_view(2))
         
@@ -505,14 +534,19 @@ class MainWindow(QMainWindow):
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
         
-        # 默认选中日记视图
+        # 默认选中日历视图
         self.switch_view(0)
-        
+    
+    def open_diary(self, date):
+        """打开指定日期的日记"""
+        self.diary_view.load_date(date)
+        self.stacked_widget.setCurrentIndex(3)
+
     def switch_view(self, index):
         self.stacked_widget.setCurrentIndex(index)
         
         # 更新按钮状态
-        self.diary_btn.setChecked(index == 0)
+        self.calendar_btn.setChecked(index == 0)
         self.today_btn.setChecked(index == 1)
         self.note_btn.setChecked(index == 2)
         
@@ -524,7 +558,18 @@ class MainWindow(QMainWindow):
         elif index == 2:
             self.notes_view.refresh()
 
+    def switch_to_calendar(self):   
+        """切换到日历视图"""
+        self.stacked_widget.setCurrentIndex(0)  # 切换到日历视图
+
+    def show_diary_saved_message(self, date):
+        # 在状态栏显示用户名
+        self.statusBar().showMessage(f"{date.toString('yyyy-MM-dd HH:mm:ss')} Diary saved", 3000)
+
 class DiaryView(QWidget):
+    # 添加返回信号
+    back_to_calendar = pyqtSignal()
+    
     def __init__(self, file_manager):
         super().__init__()
         self.file_manager = file_manager
@@ -532,50 +577,208 @@ class DiaryView(QWidget):
         self.init_ui()
         
     def init_ui(self):
-        layout = QHBoxLayout()
+        # 主布局
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(5)
         
-        # 左侧 - 日历
-        calendar_layout = QVBoxLayout()
+        # 顶部导航栏
+        nav_layout = QHBoxLayout()
         
-        self.calendar = QCalendarWidget()
-        self.calendar.setGridVisible(True)
-        self.calendar.setStyleSheet("""
-            QCalendarWidget {
-                border-radius: 8px;
-            }
-            QCalendarWidget QWidget {
-            }
-            QToolButton::menu-indicator {
-                width: 0px;
+        # 返回日历按钮
+        back_btn = QPushButton("返回日历")
+        back_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 8px 20px;
+                background-color: #5D3FD3;
+                color: white;
+                border-radius: 6px;
+                font-weight: bold;
             }
         """)
-        self.calendar.clicked.connect(self.on_date_selected)
+        back_btn.clicked.connect(self.go_back_to_calendar)
+        nav_layout.addWidget(back_btn)
         
-        self.date_label = QLabel(self.current_date.toString("yyyy年MM月dd日"))
+        # 日期导航
+        prev_btn = QPushButton("◀")
+        prev_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 18px;
+                padding: 5px 15px;
+                background-color: #D6C4F0;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #EDE7F6;
+            }
+        """)
+        prev_btn.clicked.connect(self.prev_day)
+        
+        next_btn = QPushButton("▶")
+        next_btn.setStyleSheet(prev_btn.styleSheet())
+        next_btn.clicked.connect(self.next_day)
+        
+        today_btn = QPushButton("今天")
+        today_btn.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                padding: 8px 20px;
+                background-color: #5D3FD3;
+                color: white;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+        """)
+        today_btn.clicked.connect(self.go_to_today)
+        
+        # 日期标签
+        self.date_label = QLabel()
+        self.update_date_label()
+        self.date_label.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        self.date_label.setStyleSheet("color: #5D3FD3;")
         self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.date_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        self.date_label.setStyleSheet("color: #5D3FD3; padding: 10px;")
         
-        calendar_layout.addWidget(self.date_label)
-        calendar_layout.addWidget(self.calendar)
+        nav_layout.addWidget(prev_btn)
+        nav_layout.addWidget(self.date_label, 1)  # 添加伸缩因子
+        nav_layout.addWidget(next_btn)
+        nav_layout.addWidget(today_btn)
         
-        # 右侧 - 日记编辑器
+        layout.addLayout(nav_layout)
+        
+        # 日记编辑器
         self.editor = DiaryEditor(self.file_manager)
-        
-        layout.addLayout(calendar_layout, 1)
-        layout.addWidget(self.editor, 2)
+        layout.addWidget(self.editor, 1)  # 添加伸缩因子
         
         self.setLayout(layout)
         
-    def on_date_selected(self, date):
-        self.current_date = date
-        self.date_label.setText(date.toString("yyyy年MM月dd日"))
+        # 初始加载当前日期
         self.refresh()
         
+    def update_date_label(self):
+        """更新日期标签显示"""
+        # weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        weekday = weekdays[self.current_date.dayOfWeek() - 1]
+        self.date_label.setText(f"{self.current_date.toString('yyyy年MM月dd日')} {weekday}")
+    
+    def load_date(self, date):
+        """加载指定日期的日记"""
+        self.current_date = date
+        self.update_date_label()
+        self.refresh()
+    
     def refresh(self):
+        """刷新日记内容"""
         self.editor.load_date(self.current_date)
+    
+    def prev_day(self):
+        """跳转到前一天"""
+        self.current_date = self.current_date.addDays(-1)
+        self.update_date_label()
+        self.refresh()
+    
+    def next_day(self):
+        """跳转到后一天"""
+        self.current_date = self.current_date.addDays(1)
+        self.update_date_label()
+        self.refresh()
+    
+    def go_to_today(self):
+        """跳转到今天"""
+        self.current_date = QDate.currentDate()
+        self.update_date_label()
+        self.refresh()
+    
+    def go_back_to_calendar(self):
+        """返回到日历视图"""
+        self.back_to_calendar.emit()
+
+class CalendarView(QWidget):
+    date_selected = pyqtSignal(QDate)  # 日期选择信号
+    
+    def __init__(self, file_manager):
+        super().__init__()
+        self.file_manager = file_manager
+        self.init_ui()
+        
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(15)
+        
+        # 标题
+        title = QLabel("选择日期")
+        title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
+        title.setStyleSheet("color: #5D3FD3; padding: 10px;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        
+        # 日历控件
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(True)
+        self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        # self.calendar.setStyleSheet("""
+        #     QCalendarWidget {
+        #         background-color: white;
+        #         border-radius: 8px;
+        #         padding: 5px;
+        #     }
+        #     QCalendarWidget QToolButton {
+        #         font-size: 14px;
+        #         font-weight: bold;
+        #     }
+        #     QCalendarWidget QMenu {
+        #         background-color: white;
+        #         border: 1px solid #E0E0E0;
+        #         border-radius: 6px;
+        #     }
+        #     QCalendarWidget QSpinBox {
+        #         min-width: 80px;
+        #     }
+        #     QCalendarWidget QWidget#qt_calendar_navigationbar {
+        #         background-color: #EDE7F6;
+        #         border-radius: 6px;
+        #         padding: 5px;
+        #     }
+        # """)
+        self.calendar.clicked.connect(self.on_date_selected)
+        layout.addWidget(self.calendar)
+        
+        # 标记有日记的日期
+        self.mark_diary_dates()
+        
+        self.setLayout(layout)
+    
+    def on_date_selected(self, date):
+        """处理日期选择事件"""
+        self.date_selected.emit(date)
+    
+    def mark_diary_dates(self):
+        """标记有日记的日期"""
+        # 获取当前显示的月份
+        year = self.calendar.yearShown()
+        month = self.calendar.monthShown()
+        
+        # 获取该月所有有日记的日期
+        diary_dates = self.file_manager.get_diary_dates_for_month(year, month)
+            # 根据系统主题选择颜色
+        palette = self.calendar.palette()
+        if palette.window().color().lightness() < 128:  # 深色模式
+            bg_color = QColor("#5E35B1")  # 深紫色
+        else:  # 浅色模式
+            bg_color = QColor("#EDE7F6")  # 浅紫色
+        # 创建文本格式
+        format = QTextCharFormat()
+        format.setBackground(bg_color)
+        format.setFontWeight(QFont.Weight.Bold)
+        
+        # 应用格式
+        for date in diary_dates:
+            self.calendar.setDateTextFormat(date, format)
 
 class DiaryEditor(QWidget):
+    diary_saved = pyqtSignal(QDateTime) 
     def __init__(self, file_manager):
         super().__init__()
         self.file_manager = file_manager
@@ -589,9 +792,24 @@ class DiaryEditor(QWidget):
         todo_layout = QVBoxLayout()
         todo_label = QLabel("今日待办")
         todo_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        
         self.todo_list = QListWidget()
-        
+        self.todo_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #E0E0E0;
+                border-radius: 6px;
+                padding: 5px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #EEEEEE;
+            }
+            QListWidget::item:selected {
+                background-color: #EDE7F6;
+            }
+        """)
+        self.todo_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.todo_list.customContextMenuRequested.connect(self.show_todo_context_menu)
+
         todo_layout.addWidget(todo_label)
         todo_layout.addWidget(self.todo_list)
         
@@ -639,13 +857,13 @@ class DiaryEditor(QWidget):
         layout.addLayout(summary_layout, 2)
         
         self.setLayout(layout)
-        
+
     def load_date(self, date):
         self.current_date = date
         
         # 加载日记内容
         content = self.file_manager.load_diary(date)
-        
+        # print(content)
         # 解析内容
         self.todo_list.clear()
         self.note_list.clear()
@@ -674,18 +892,31 @@ class DiaryEditor(QWidget):
                 
             if in_todo and line.strip():
                 # 提取任务文本（去掉Markdown标记）
-                task_text = line.lstrip('- []').strip()
+                # print(f"Processing line: {line}")
+                if line.startswith('- [x]') or line.startswith('- [X]'):
+                # 已完成任务
+                    task_text = line[5:].strip()  # 移除 "- [x]"
+                    completed = True
+                elif line.startswith('- [ ]'):
+                # 未完成任务
+                    task_text = line[5:].strip()  # 移除 "- [ ]"
+                    completed = False
+                else:
+                    # 处理不规范的格式
+                    task_text = line.lstrip('- []').strip()
+                    completed = '[x]' in line or '[X]' in line
                 # 尝试从任务文本中提取标签和优先级
                 tags = []
                 priority = None
                 
                 # 查找标签部分
-                if '[' in task_text and ']' in task_text:
-                    tag_start = task_text.find('[')
-                    tag_end = task_text.find(']', tag_start)
+                if '{' in task_text and '}' in task_text:
+                    # print(f"Found tags in task: {task_text}")
+                    tag_start = task_text.find('{')
+                    tag_end = task_text.find('}', tag_start)
                     if tag_end != -1:
                         tag_content = task_text[tag_start+1:tag_end]
-                        task_text = task_text[:tag_start].strip()
+                        task_text = task_text[tag_end+1:].strip()
                         
                         # 解析标签和优先级
                         parts = [p.strip() for p in tag_content.split(',')]
@@ -698,31 +929,104 @@ class DiaryEditor(QWidget):
                                 tags.append(part)
                 
                 # 创建列表项
-                item_text = task_text
+                item = QListWidgetItem()
+                
+                # 创建自定义小部件来显示任务
+                widget = QWidget()
+                layout = QHBoxLayout(widget)
+                layout.setContentsMargins(2, 2, 2, 2)
+                layout.setSpacing(2)  # 设置控件间距
+                
+                # 状态图标
+                status_label = QLabel("✓" if completed else "◌")
+                status_label.setFont(QFont("Arial", 22))
+                status_label.setStyleSheet(f"color: {'#757575' if completed else '#5D3FD3'}; min-width: 20px;")
+                layout.addWidget(status_label)
+                
+                # 任务文本
+                task_label = QLabel(task_text if task_text.strip() else "(无标题任务)")
+                # task_label = QLabel(task_text)
+                task_label.setFont(QFont("Arial", 12))
+                task_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+                if completed:
+                    task_label.setStyleSheet("color: #757575; text-decoration: line-through;")
+                layout.addWidget(task_label, 1)  # 添加伸缩因子1
+                
+                # 优先级标签
                 if priority:
-                    item_text += f" ({priority})"
+                    priority_label = QLabel(priority)
+                    priority_label.setFont(QFont("Arial", 12))
+                    priority_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    
+                    # 根据优先级设置颜色
+                    priority = priority.lower()
+                    if priority == 'high':
+                        bg_color = "#FF6B6B"
+                    elif priority == 'medium':
+                        bg_color = "#FFD166"
+                    elif priority == 'low':
+                        bg_color = "#06D6A0"
+                    else:
+                        bg_color = "#5D3FD3"
+                    
+                    priority_label.setStyleSheet(f"""
+                        background-color: {bg_color};
+                        color: {'white' if priority != 'medium' else 'black'};
+                        border-radius: 10px;
+                        min-width: 40px;
+                    """)
+                    layout.addWidget(priority_label)
+                
+                # 标签徽章
                 if tags:
-                    item_text += f" {' '.join(['#' + t for t in tags])}"
+                    tags_widget = QWidget()
+                    tags_layout = QHBoxLayout(tags_widget)
+                    tags_layout.setContentsMargins(0, 0, 0, 0)
+                    tags_layout.setSpacing(2)
+                    
+                    # 标签颜色映射
+                    tag_colors = {
+                        "工作": "#5D3FD3",
+                        "学习": "#06D6A0",
+                        "生活": "#FFD166",
+                        "重要": "#FF6B6B",
+                        "紧急": "#EF476F",
+                        "个人": "#118AB2"
+                    }
+                    
+                    for tag in tags:
+                        tag_label = QLabel(f"#{tag}")
+                        tag_label.setFont(QFont("Arial", 12))
+                        tag_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        tag_label.setStyleSheet(f"""
+                            background-color: {tag_colors.get(tag, '#6C757D')};
+                            color: white;
+                            border-radius: 10px;
+                            min-width: 40px;
+                        """)
+                        tags_layout.addWidget(tag_label)
+                    
+                    layout.addWidget(tags_widget)
                 
-                # 如果行中有 [x] 则表示已完成
-                if '[x]' in line or '[X]' in line:
-                    completed = True
-                    item = QListWidgetItem("✓ " + item_text)
-                    item.setForeground(QColor('#757575'))
-                    font = QFont()
-                    font.setStrikeOut(True)
-                    item.setFont(font)
-                else:
-                    completed = False
-                    item = QListWidgetItem("◌ " + item_text)
+                # 设置小部件
+                # widget.setLayout(layout)
+                widget.adjustSize()  # 关键：确保计算正确尺寸
+                min_height = max(widget.sizeHint().height(), 40)  # 最小高度40px
+                item.setSizeHint(QSize(widget.sizeHint().width(), min_height))
+                # item.setSizeHint(widget.sizeHint())
+
+                # 添加到列表
+                self.todo_list.addItem(item)
+                self.todo_list.setItemWidget(item, widget)
                 
+                # 存储原始数据
                 item.setData(Qt.ItemDataRole.UserRole, {
                     'text': task_text,
                     'completed': completed,
                     'priority': priority,
                     'tags': tags
                 })
-                self.todo_list.addItem(item)
+                
             elif in_notes and line.strip():
                 # 解析笔记条目
                 if line.startswith('- ['):
@@ -744,7 +1048,91 @@ class DiaryEditor(QWidget):
         
         # 将光标移到开始位置
         self.summary_edit.moveCursor(QTextCursor.MoveOperation.Start)
+
+    def show_todo_context_menu(self, pos):
+        item = self.todo_list.itemAt(pos)
+        if not item:
+            return
+            
+        menu = QMenu(self)
+        
+        # 获取任务数据
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        completed = task_data['completed']
+        
+        # 切换完成状态
+        status_action = menu.addAction("标记为已完成" if not completed else "标记为未完成")
+        status_action.triggered.connect(lambda: self.toggle_task_completion(item))
+        
+        # 编辑任务
+        edit_action = menu.addAction("编辑任务")
+        edit_action.triggered.connect(lambda: self.edit_task(item))
+        
+        # 删除任务
+        delete_action = menu.addAction("删除任务")
+        delete_action.triggered.connect(lambda: self.delete_task(item))
+        
+        menu.exec(self.todo_list.mapToGlobal(pos))
     
+    def toggle_task_completion(self, item):
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        task_data['completed'] = not task_data['completed']
+        item.setData(Qt.ItemDataRole.UserRole, task_data)
+        
+        # 不要重新加载整个列表
+        # 直接更新显示
+        widget = self.todo_list.itemWidget(item)
+        # layout, status, text, priority, tags
+        
+        if widget:
+            # 找到状态标签并更新
+            status_label = widget.children()[1]
+            if status_label:
+                status_label.setText("✓" if task_data['completed'] else "◌")
+                status_label.setStyleSheet(f"color: {'#757575' if task_data['completed'] else '#5D3FD3'};")
+            
+            text_label = widget.children()[2]
+            if text_label:
+                if task_data['completed']:
+                    text_label.setStyleSheet("color: #757575; text-decoration: line-through;")
+                else:
+                    text_label.setStyleSheet("text-decoration: none;")
+        
+        self.save_diary()
+    
+    def edit_task(self, item):
+        """编辑任务"""
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        
+        # 弹出编辑对话框
+        new_text, ok = QInputDialog.getText(self, "编辑任务", "任务内容:", 
+                                       text=task_data['text'])
+        if not ok or not new_text.strip():
+            return
+            # 更新数据
+        task_data['text'] = new_text.strip()
+        item.setData(Qt.ItemDataRole.UserRole, task_data)
+        
+        # 直接更新显示，避免重新加载整个列表
+        widget = self.todo_list.itemWidget(item)
+        # layout, status, text, priority, tags
+
+        if widget:
+            # 找到任务文本标签
+            text_label = widget.children()[2]
+            if text_label:
+                text_label.setText(new_text.strip())
+        # 保存日记
+        self.save_diary()
+            
+    def delete_task(self, item):
+        row = self.todo_list.row(item)
+        self.todo_list.takeItem(row)  # 这会删除项
+        
+        # 不需要重新加载列表
+        self.save_diary()
+
+
     def open_note(self, item):
         note_title = item.text().split(' - ', 1)[1]
         # 在实际项目中，这里应该打开笔记
@@ -804,7 +1192,6 @@ class DiaryEditor(QWidget):
         for i in range(self.todo_list.count()):
             item = self.todo_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
-            
             # 根据完成状态添加不同标记
             mark = "[x]" if data['completed'] else "[ ]"
             
@@ -816,10 +1203,10 @@ class DiaryEditor(QWidget):
                 tag_parts.extend(data['tags'])
             
             # 构建行
-            line = f"- {mark} {data['text']}"
+            line = f"- {mark} "
             if tag_parts:
-                line += f" [{', '.join(tag_parts)}]"
-            
+                line += "{" + f" {', '.join(tag_parts)}" + "}"
+            line += data['text']
             content += line + "\n"
         
         content += "\n## Notes\n"
@@ -834,46 +1221,52 @@ class DiaryEditor(QWidget):
         
         # 保存文件
         self.file_manager.save_diary(self.current_date, content)
-        QMessageBox.information(self, "保存成功", "日记已保存")
+        self.diary_saved.emit(QDateTime.currentDateTime())
+        # QMessageBox.information(self, "保存成功", "日记已保存")
 
 class TodayTODOView(QWidget):
+    diary_saved = pyqtSignal(QDateTime) 
     def __init__(self, file_manager):
         super().__init__()
         self.file_manager = file_manager
+        self.today = QDate.currentDate()
         self.init_ui()
         
     def init_ui(self):
         layout = QVBoxLayout()
         
-        title = QLabel("今日待办事项")
-        title.setFont(QFont("Arial", 20, QFont.Weight.Bold))
-        title.setStyleSheet("color: #5D3FD3; padding: 10px;")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # 任务列表
-        self.task_list = QListWidget()
-        # self.task_list.setStyleSheet("""
-        #     QListWidget {
-        #         background-color: white;
-        #         border-radius: 8px;
-        #         padding: 5px;
-        #     }
-        #     QListWidget::item {
-        #         padding: 15px;
-        #         border-bottom: 1px solid #EEEEEE;
-        #         font-size: 14px;
-        #     }
-        #     QListWidget::item:selected {
-        #         background-color: #EDE7F6;
-        #     }
-        # """)
-        
+        todo_label = QLabel("今日待办事项")
+        todo_label.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        todo_label.setStyleSheet("color: #5D3FD3; padding: 10px;")
+        todo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.todo_list = QListWidget()
+        self.todo_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #E0E0E0;
+                border-radius: 6px;
+                padding: 5px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #EEEEEE;
+            }
+            QListWidget::item:selected {
+                background-color: #EDE7F6;
+            }
+        """)
+        self.todo_list.itemDoubleClicked.connect(self.toggle_task_completion)
+        self.todo_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.todo_list.customContextMenuRequested.connect(self.show_todo_context_menu)
         # 添加新任务区域
         add_task_layout = QHBoxLayout()
         self.new_task_input = QLineEdit()
         self.new_task_input.setPlaceholderText("添加新任务...")
-        self.new_task_input.setStyleSheet("padding: 10px; font-size: 14px; border-radius: 6px;")
+        self.new_task_input.setStyleSheet("padding: 10px; font-size: 16px; border-radius: 6px;")
         
+        # 回车键添加任务
+        self.new_task_input.returnPressed.connect(self.add_task)
+
         add_btn = QPushButton("添加")
         add_btn.setStyleSheet("""
             QPushButton {
@@ -890,19 +1283,146 @@ class TodayTODOView(QWidget):
         add_task_layout.addWidget(self.new_task_input)
         add_task_layout.addWidget(add_btn)
         
-        layout.addWidget(title)
-        layout.addWidget(self.task_list)
+        layout.addWidget(todo_label)
+        layout.addWidget(self.todo_list)
         layout.addLayout(add_task_layout)
         
         self.setLayout(layout)
-        self.refresh()
-        
+        self.load_today()
+    
     def refresh(self):
-        today = QDate.currentDate()
+        """刷新今日待办列表"""
+        self.todo_list.clear()
+        self.load_today()
+
+    def add_task_to_list(self, task_text, completed=False, priority=None, tags=None):
+        # 创建列表项
+        item = QListWidgetItem()
+        # 创建自定义小部件来显示任务
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(4)  # 设置控件间距
         
+        # 状态图标
+        status_label = QLabel("✓" if completed else "◌")
+        status_label.setFont(QFont("Arial", 26))
+        status_label.setStyleSheet(f"color: {'#757575' if completed else '#5D3FD3'}; min-width: 20px;")
+        layout.addWidget(status_label)
+        
+        # 任务文本
+        task_label = QLabel(task_text if task_text.strip() else "(无标题任务)")
+        # task_label = QLabel(task_text)
+        task_label.setFont(QFont("Arial", 18))
+        task_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        if completed:
+            task_label.setStyleSheet("color: #757575; text-decoration: line-through;")
+        layout.addWidget(task_label, 1)  # 添加伸缩因子1
+        
+        # 优先级标签
+        if priority:
+            priority_label = QLabel(priority)
+            priority_label.setFont(QFont("Arial", 18,))
+            priority_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # 根据优先级设置颜色
+            priority = priority.lower()
+            if priority == 'high':
+                bg_color = "#FF6B6B"
+            elif priority == 'medium':
+                bg_color = "#FFD166"
+            elif priority == 'low':
+                bg_color = "#06D6A0"
+            else:
+                bg_color = "#5D3FD3"
+            
+            priority_label.setStyleSheet(f"""
+                background-color: {bg_color};
+                color: {'white' if priority != 'medium' else 'black'};
+                border-radius: 10px;
+                min-width: 50px;
+            """)
+            layout.addWidget(priority_label)
+        
+        # 标签徽章
+        if tags:
+            tags_widget = QWidget()
+            tags_layout = QHBoxLayout(tags_widget)
+            tags_layout.setContentsMargins(0, 0, 0, 0)
+            tags_layout.setSpacing(2)
+            
+            # 标签颜色映射
+            tag_colors = {
+                "工作": "#5D3FD3",
+                "学习": "#06D6A0",
+                "生活": "#FFD166",
+                "重要": "#FF6B6B",
+                "紧急": "#EF476F",
+                "个人": "#118AB2"
+            }
+            
+            for tag in tags:
+                tag_label = QLabel(f"#{tag}")
+                tag_label.setFont(QFont("Arial", 18))
+                tag_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                tag_label.setStyleSheet(f"""
+                    background-color: {tag_colors.get(tag, '#6C757D')};
+                    color: white;
+                    border-radius: 10px;
+                    min-width: 50px;
+                """)
+                tags_layout.addWidget(tag_label)
+            
+            layout.addWidget(tags_widget)
+        
+        # 设置小部件
+        # widget.setLayout(layout)
+        widget.adjustSize()  # 关键：确保计算正确尺寸
+        min_height = max(widget.sizeHint().height(), 50)  # 最小高度40px
+        item.setSizeHint(QSize(widget.sizeHint().width(), min_height))
+        # 添加到列表
+        self.todo_list.addItem(item)
+        self.todo_list.setItemWidget(item, widget)
+        
+        # 存储原始数据
+        item.setData(Qt.ItemDataRole.UserRole, {
+            'text': task_text,
+            'completed': completed,
+            'priority': priority,
+            'tags': tags
+        })
+
+    def get_tags_and_priority(self, task_text):
+        """从任务文本中提取标签和优先级"""
+        tags = []
+        priority = None
+        
+        # 查找标签部分
+        if '{' in task_text and '}' in task_text:
+            # print(f"Found tags in task: {task_text}")
+            tag_start = task_text.find('{')
+            tag_end = task_text.find('}', tag_start)
+            if tag_end != -1:
+                tag_content = task_text[tag_start+1:tag_end]
+                task_text = task_text[tag_end+1:].strip()
+                
+                # 解析标签和优先级
+                parts = [p.strip() for p in tag_content.split(',')]
+                for part in parts:
+                    if ':' in part:
+                        key, value = map(str.strip, part.split(':', 1))
+                        if key.lower() == 'priority':
+                            priority = value
+                    else:
+                        tags.append(part)
+        return task_text, tags, priority
+    
+    def load_today(self):
+        today = QDate.currentDate()
+        self.today = today
+        self.todo_list.clear() 
         # 加载今天的日记
         diary_content = self.file_manager.load_diary(today)
-        tasks = []
         
         # 提取TODO部分
         in_todo = False
@@ -912,71 +1432,146 @@ class TodayTODOView(QWidget):
                 continue
             elif line.startswith("## ") and in_todo:
                 break
-                
+            
             if in_todo and line.strip() and line.startswith('- '):
-                # 提取任务文本
-                task_text = line.lstrip('- []').strip()
-                # 尝试从任务文本中提取标签
-                if '[' in task_text and ']' in task_text:
-                    task_text = task_text[:task_text.find('[')].strip()
+                # 改进的任务解析逻辑
+                if line.startswith('- [x]') or line.startswith('- [X]'):
+                    # 已完成任务
+                    task_text = line[5:].strip()  # 移除 "- [x]"
+                    completed = True
+                elif line.startswith('- [ ]'):
+                    # 未完成任务
+                    task_text = line[5:].strip()  # 移除 "- [ ]"
+                    completed = False
+                else:
+                    # 处理不规范的格式
+                    task_text = line.lstrip('- []').strip()
+                    # 检查是否包含完成标记
+                    completed = '[x]' in line or '[X]' in line
+                task_text, tags, priority = self.get_tags_and_priority(task_text)
+                self.add_task_to_list(task_text, completed, priority, tags)
                 
-                completed = '[x]' in line or '[X]' in line
-                tasks.append((task_text, completed))
-        
-        # 显示任务
-        self.task_list.clear()
-        for task_text, completed in tasks:
-            item = QListWidgetItem(task_text)
-            item.setData(Qt.ItemDataRole.UserRole, {"completed": completed, "text": task_text})
-            
-            if completed:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                item.setForeground(QColor('#757575'))
-                font = QFont()
-                font.setStrikeOut(True)
-                item.setFont(font)
-            else:
-                font = QFont()
-                font.setBold(True)
-                item.setFont(font)
-            
-            self.task_list.addItem(item)
-    
     def add_task(self):
         task_text = self.new_task_input.text().strip()
         if not task_text:
             return
-            
-        # 添加到列表
-        item = QListWidgetItem(task_text)
-        item.setData(Qt.ItemDataRole.UserRole, {"completed": False, "text": task_text})
-        font = QFont()
-        font.setBold(True)
-        item.setFont(font)
-        self.task_list.addItem(item)
-        
         # 清空输入框
         self.new_task_input.clear()
-        
+        task_text, tags, priority = self.get_tags_and_priority(task_text)
+        self.add_task_to_list(task_text, completed=False, priority=priority, tags=tags)
         # 更新日记文件
         self.update_diary_tasks()
-    
-    def update_diary_tasks(self):
-        today = QDate.currentDate()
-        diary_content = self.file_manager.load_diary(today)
+
+    def show_todo_context_menu(self, pos):
+        item = self.todo_list.itemAt(pos)
+        if not item:
+            return
+            
+        menu = QMenu(self)
         
+        # 获取任务数据
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        completed = task_data['completed']
+        
+        # 切换完成状态
+        status_action = menu.addAction("标记为已完成" if not completed else "标记为未完成")
+        status_action.triggered.connect(lambda: self.toggle_task_completion(item))
+        
+        # 编辑任务
+        edit_action = menu.addAction("编辑任务")
+        edit_action.triggered.connect(lambda: self.edit_task(item))
+        
+        # 删除任务
+        delete_action = menu.addAction("删除任务")
+        delete_action.triggered.connect(lambda: self.delete_task(item))
+        
+        menu.exec(self.todo_list.mapToGlobal(pos))
+
+    def toggle_task_completion(self, item):
+        """切换任务完成状态"""
+        # 获取当前任务数据
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        task_data['completed'] = not task_data['completed']
+        item.setData(Qt.ItemDataRole.UserRole, task_data)
+        
+        # 直接更新显示
+        widget = self.todo_list.itemWidget(item)
+        # layout, status, text, priority, tags
+        
+        if widget:
+            # 找到状态标签并更新
+            status_label = widget.children()[1]
+            if status_label:
+                status_label.setText("✓" if task_data['completed'] else "◌")
+                status_label.setStyleSheet(f"color: {'#757575' if task_data['completed'] else '#5D3FD3'};")
+            
+            text_label = widget.children()[2]
+            if text_label:
+                if task_data['completed']:
+                    text_label.setStyleSheet("color: #757575; text-decoration: line-through;")
+                else:
+                    text_label.setStyleSheet("text-decoration: none;")
+
+        # 更新日记文件
+        self.update_diary_tasks()
+
+    def edit_task(self, item):
+        """编辑任务"""
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        
+        # 弹出编辑对话框
+        new_text, ok = QInputDialog.getText(self, "编辑任务", "任务内容:", 
+                                       text=task_data['text'])
+        if not ok or not new_text.strip():
+            return
+            # 更新数据
+        task_data['text'] = new_text.strip()
+        item.setData(Qt.ItemDataRole.UserRole, task_data)
+        
+        # 直接更新显示，避免重新加载整个列表
+        widget = self.todo_list.itemWidget(item)
+        # layout, status, text, priority, tags
+
+        if widget:
+            # 找到任务文本标签
+            text_label = widget.children()[2]
+            if text_label:
+                text_label.setText(new_text.strip())
+        # 保存日记
+        self.update_diary_tasks()
+            
+    def delete_task(self, item):
+        row = self.todo_list.row(item)
+        self.todo_list.takeItem(row)  # 这会删除项
+        
+        # 不需要重新加载列表
+        self.update_diary_tasks()
+
+    def update_diary_tasks(self):
+        diary_content = self.file_manager.load_diary(self.today)
+        if self.today != QDate.currentDate():
+            QMessageBox(text="警告: 更新的日期不是今天，可能导致数据不一致！")
         # 重建TODO部分
         new_todo = "## TODO\n"
-        for i in range(self.task_list.count()):
-            item = self.task_list.item(i)
+        for i in range(self.todo_list.count()):
+            item = self.todo_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
-            
             # 根据完成状态添加不同标记
             mark = "[x]" if data['completed'] else "[ ]"
             
-            # 添加任务
-            new_todo += f"- {mark} {data['text']}\n"
-        
+            # 重建标签/优先级部分
+            tag_parts = []
+            if data.get('priority'):
+                tag_parts.append(f"priority:{data['priority']}")
+            if data.get('tags'):
+                tag_parts.extend(data['tags'])
+            
+            # 构建行
+            line = f"- {mark} "
+            if tag_parts:
+                line += "{" + f" {', '.join(tag_parts)}" + "}"
+            line += data['text']
+            new_todo += line + "\n"
         # 更新日记内容
         if "## TODO" in diary_content:
             # 替换现有的TODO部分
@@ -991,8 +1586,8 @@ class TodayTODOView(QWidget):
             diary_content = new_todo + "\n" + diary_content
         
         # 保存更新
-        self.file_manager.save_diary(today, diary_content)
-        QMessageBox.information(self, "更新成功", "待办事项已更新到日记")
+        self.file_manager.save_diary(self.today, diary_content)
+        self.diary_saved.emit(QDateTime.currentDateTime())
 
 class QuickNoteView(QWidget):
     def __init__(self, file_manager):
@@ -1103,7 +1698,7 @@ def main():
     
     account_manager = AccountManager(base_path)
     login_win = LoginWindow(account_manager)
-    test = True
+    test = False
     if test:
         username = "test"
         file_manager = FileManager(base_path, username)
