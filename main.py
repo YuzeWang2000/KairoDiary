@@ -270,9 +270,9 @@ class AccountManager:
             # 保存更新
             self.save_global_config(config)
             
-            # 检查用户数据目录是否存在
-            user_dir = os.path.join(self.base_path, "users", username)
-            os.makedirs(user_dir, exist_ok=True)
+            # # 检查用户数据目录是否存在
+            # user_dir = os.path.join(self.base_path, "users", username)
+            # os.makedirs(user_dir, exist_ok=True)
             
             return True, "登录成功"
             
@@ -787,7 +787,7 @@ class DiaryEditor(QWidget):
         
     def init_ui(self):
         layout = QVBoxLayout()
-        
+        todo_note_layout = QHBoxLayout()
         # TODO部分
         todo_layout = QVBoxLayout()
         todo_label = QLabel("今日待办")
@@ -852,9 +852,10 @@ class DiaryEditor(QWidget):
         summary_layout.addWidget(save_btn)
         
         # 整合布局
-        layout.addLayout(todo_layout, 1)
-        layout.addLayout(note_layout, 1)
-        layout.addLayout(summary_layout, 2)
+        todo_note_layout.addLayout(todo_layout, 1)
+        todo_note_layout.addLayout(note_layout, 1)
+        layout.addLayout(todo_note_layout, 1)  # 添加伸缩因子
+        layout.addLayout(summary_layout, 1)
         
         self.setLayout(layout)
 
@@ -1622,19 +1623,6 @@ class QuickNoteView(QWidget):
         
         # 笔记列表
         self.notes_list = QListWidget()
-        # self.notes_list.setStyleSheet("""
-        #     QListWidget {
-        #         background-color: white;
-        #         border-radius: 8px;
-        #     }
-        #     QListWidget::item {
-        #         padding: 15px;
-        #         border-bottom: 1px solid #EEEEEE;
-        #     }
-        #     QListWidget::item:selected {
-        #         background-color: #EDE7F6;
-        #     }
-        # """)
         self.notes_list.itemClicked.connect(self.open_note)
         
         # 设置全局快捷键（在实际应用中需绑定系统快捷键）
@@ -1691,26 +1679,32 @@ def main():
     QApplication.setOrganizationName("KairoSoft")
     
     app = QApplication(sys.argv)
-    
+
+    # 设置应用程序图标（会显示在任务栏等位置）
+    app.setWindowIcon(QIcon('./resources/icon/kd.ico'))
+    app.setApplicationDisplayName("Kairo Diary")
     # 获取当前用户的文档目录
     documents_path = os.path.join(os.path.expanduser("~"), "MyDocuments")
     base_path = os.path.join(documents_path, "KairoDiaryData")
     
     account_manager = AccountManager(base_path)
     login_win = LoginWindow(account_manager)
-    test = False
+    test = True
     if test:
         username = "test"
         file_manager = FileManager(base_path, username)
         main_win = MainWindow(username, file_manager)
-        main_win.show()
+        # main_win.show()
+        main_win.showFullScreen()
+
 
     else:
         def on_login_success(username):
                 login_win.close()
                 file_manager = FileManager(base_path, username)
                 main_win = MainWindow(username, file_manager)
-                main_win.show()
+                # main_win.show()
+                main_win.showFullScreen()
             
         login_win.login_success.connect(on_login_success)
         login_win.show()
