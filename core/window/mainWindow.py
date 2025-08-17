@@ -169,3 +169,21 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self.logout_requested.emit()
             self.close()  # 关闭主窗口
+    
+    def closeEvent(self, event):
+        """重写关闭事件，当用户点击窗口关闭按钮时触发"""
+        # 确认对话框
+        reply = QMessageBox.question(
+            self, '确认退出',
+            '确定要退出当前账户吗？',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # 用户确认退出，发射退出信号并接受关闭事件
+            self.logout_requested.emit()
+            event.accept()
+        else:
+            # 用户取消退出，忽略关闭事件
+            event.ignore()
