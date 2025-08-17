@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QDate, pyqtSignal
 from PyQt6.QtGui import QAction
 from core.components import CalendarView, DiaryView, QuickNoteView, TodayTODOView
+from core.window.settingsDialog import SettingsDialog
 class MainWindow(QMainWindow):
     logout_requested = pyqtSignal()
     def __init__(self, username, file_manager):
@@ -22,6 +23,14 @@ class MainWindow(QMainWindow):
         
         # 1. 账户菜单
         account_menu = menubar.addMenu("账户(&A)")
+        # 添加账户设置选项
+        settings_action = QAction("账户设置", self)
+        settings_action.triggered.connect(self.open_settings)
+        account_menu.addAction(settings_action)
+        
+        # 添加分隔符
+        account_menu.addSeparator()
+        
         # 添加退出账户选项
         logout_action = QAction("退出当前账户", self)
         logout_action.triggered.connect(self.logout)
@@ -141,6 +150,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"新笔记已创建: {filename}", 3000)
         self.diary_view.editor.load_date(QDate.currentDate())  # 确保将新笔记添加到今天
         self.diary_view.editor.add_note(filename)
+    
+    def open_settings(self):
+        """打开设置对话框"""
+        settings_dialog = SettingsDialog(self.file_manager, self)
+        settings_dialog.exec()
     
     def logout(self):
         """触发退出登录流程"""

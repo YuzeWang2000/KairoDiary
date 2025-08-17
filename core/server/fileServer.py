@@ -19,41 +19,108 @@ class FileManager:
         os.makedirs(self.user_diary_dir, exist_ok=True)
         
         self.config_path = os.path.join(self.user_base_path, "config.json")
-        self.init_config()
+        self.__init_config()
         
-    def init_config(self):
+    def __init_config(self):
         """初始化用户的配置文件"""
         if not os.path.exists(self.config_path):
             default_config = {
-                "tags": ["工作", "学习", "生活", "重要"],
+                "note_tags": ["工作", "学习", "生活", "重要"],
+                "todo_tags": ["工作", "学习", "生活", "重要"],
                 "default_view": "Diary",
                 "last_access": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "theme": "system"  # 添加用户主题偏好
             }
-            self.save_config(default_config)
+            self.__save_config(default_config)
     
-    def load_config(self):
+    def __load_config(self):
         """加载用户配置"""
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+                
+                # 兼容性处理：如果发现只有tags，则迁移到note_tags和todo_tags
+                if "tags" in config and ("note_tags" not in config or "todo_tags" not in config):
+                    old_tags = config.pop("tags", ["工作", "学习", "生活", "重要"])
+                    config["note_tags"] = old_tags
+                    config["todo_tags"] = old_tags
+                    # 立即保存更新后的配置
+                    config["last_access"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    self.__save_config(config)
+                    return config
+                
                 # 更新上次访问时间
                 config["last_access"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                self.save_config(config)
+                self.__save_config(config)
                 return config
         except Exception as e:
             print(f"加载配置失败: {e}")
-            return self.init_config() or {}
-    
-    def save_config(self, config):
+            return self.__init_config() or {}
+
+    def __save_config(self, config):
         """保存用户配置"""
         try:
+            print("保存配置:", config)  # 调试输出
+            print("配置路径:", self.config_path)  # 调试输出
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
             print(f"保存配置失败: {e}")
             return False
+    
+    # ==================== 标签管理接口 ====================
+    def get_note_tags(self):
+        """获取笔记标签列表
+        
+        获取用户配置中的笔记标签列表，用于笔记分类管理。
+        
+        Returns:
+            list: 笔记标签列表，如果配置不存在则返回默认标签 ["工作", "学习", "生活", "重要"]
+        """
+        config = self.__load_config()
+        return config.get("note_tags", ["工作", "学习", "生活", "重要"])
+    
+    def get_todo_tags(self):
+        """获取待办事项标签列表
+        
+        获取用户配置中的待办事项标签列表，用于待办事项分类管理。
+        
+        Returns:
+            list: 待办事项标签列表，如果配置不存在则返回默认标签 ["工作", "学习", "生活", "重要"]
+        """
+        config = self.__load_config()
+        return config.get("todo_tags", ["工作", "学习", "生活", "重要"])
+    
+    def set_note_tags(self, tags):
+        """设置笔记标签列表
+        
+        覆盖设置用户的笔记标签列表，会完全替换现有的标签配置。
+        
+        Args:
+            tags (list): 新的笔记标签列表，建议使用字符串列表
+            
+        Returns:
+            bool: 保存成功返回True，失败返回False
+        """
+        config = self.__load_config()
+        config["note_tags"] = tags
+        return self.__save_config(config)
+
+    def set_todo_tags(self, tags):
+        """设置待办事项标签列表
+        
+        覆盖设置用户的待办事项标签列表，会完全替换现有的标签配置。
+        
+        Args:
+            tags (list): 新的待办事项标签列表，建议使用字符串列表
+            
+        Returns:
+            bool: 保存成功返回True，失败返回False
+        """
+        config = self.__load_config()
+        config["todo_tags"] = tags
+        return self.__save_config(config)
     
     def get_diary_dir(self):
         """获取用户日记目录"""
@@ -145,11 +212,6 @@ class FileManager:
             # 目录不存在时创建
             os.makedirs(notes_dir, exist_ok=True)
             return []
-    
-    def migrate_old_data(self):
-        """迁移旧版数据（如果需要）"""
-        # 如果有旧版本数据迁移逻辑可在此实现
-        pass
 
     def get_diary_dates_for_month(self, year, month):
         """获取指定月份有日记的日期列表"""
