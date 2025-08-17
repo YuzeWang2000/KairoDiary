@@ -1,10 +1,10 @@
 from setuptools import setup
 
 APP = ['main.py']  # 替换成你的主脚本文件名
-DATA_FILES = ['KairoDiary.icns']  # 确保你有 .icns 图标文件
+DATA_FILES = ['./assets/KairoDiary.icns']  # 确保你有 .icns 图标文件
 OPTIONS = {
     'argv_emulation': False,
-    'iconfile': 'KairoDiary.icns',  # 应用图标
+    'iconfile': './assets/KairoDiary.icns',  # 应用图标
     'plist': {
         'CFBundleName': 'KairoDiary',  # 应用名称（显示在 Dock 和菜单栏）
         'CFBundleDisplayName': 'KairoDiary',  # 显示名称
