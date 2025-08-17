@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, 
+    QDialog, QVBoxLayout, 
     QPushButton, QLineEdit, 
     QMessageBox, QInputDialog, QLabel, QCheckBox
 )
@@ -9,11 +9,12 @@ from PyQt6.QtGui import QFont
 # ======================
 # 界面组件
 # ======================
-class LoginWindow(QWidget):
+class LoginWindow(QDialog):
     login_success = pyqtSignal(str)
     def __init__(self, account_manager):
         super().__init__()
         self.account_manager = account_manager
+        self.setModal(True)  # 设置为模态对话框
         self.init_ui()
         self.load_last_login()
         
@@ -93,8 +94,10 @@ class LoginWindow(QWidget):
             if self.remember_check.isChecked():
                 self.account_manager.set_last_login(username)
             
-            # 发射信号，传递用户名和FileManager
+            # 发射信号，传递用户名
             self.login_success.emit(username)
+            # 使用 Dialog 的 accept 方法
+            self.accept()
         else:
             QMessageBox.critical(self, "登录失败", message)
             self.password_input.clear()  # 清空密码框
@@ -119,3 +122,15 @@ class LoginWindow(QWidget):
                 self.password_input.setFocus()
             else:
                 QMessageBox.critical(self, "注册失败", message)
+    
+    def keyPressEvent(self, event):
+        """处理键盘事件"""
+        from PyQt6.QtCore import Qt
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            # 回车键触发登录
+            self.handle_login()
+        elif event.key() == Qt.Key.Key_Escape:
+            # ESC 键关闭对话框
+            self.reject()
+        else:
+            super().keyPressEvent(event)

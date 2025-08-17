@@ -2,7 +2,8 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QLineEdit, QListWidgetItem,
-    QMessageBox, QInputDialog, QLabel, QMenu, QSizePolicy
+    QMessageBox, QInputDialog, QLabel, QMenu, QSizePolicy,
+    QDialog, QScrollArea
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QSize, QDateTime
 from PyQt6.QtGui import QFont
@@ -64,8 +65,23 @@ class TodayTODOView(QWidget):
         """)
         add_btn.clicked.connect(self.add_task)
         
+        # 高级添加按钮
+        advanced_add_btn = QPushButton("高级添加")
+        advanced_add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 10px 20px;
+                font-weight: bold;
+                border-radius: 6px;
+                min-width: 80px;
+            }
+        """)
+        advanced_add_btn.clicked.connect(self.show_advanced_add_dialog)
+        
         add_task_layout.addWidget(self.new_task_input)
         add_task_layout.addWidget(add_btn)
+        add_task_layout.addWidget(advanced_add_btn)
         
         layout.addWidget(todo_label)
         layout.addWidget(self.todo_list)
@@ -245,6 +261,272 @@ class TodayTODOView(QWidget):
         self.add_task_to_list(task_text, completed=False, priority=priority, tags=tags)
         # 更新日记文件
         self.update_diary_tasks()
+    
+    def show_advanced_add_dialog(self):
+        """显示高级添加任务对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加新任务")
+        dialog.setFixedSize(500, 450)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(15)
+        
+        # 任务内容
+        task_label = QLabel("任务内容:")
+        task_label.setStyleSheet("font-weight: bold;")
+        self.task_input = QLineEdit()
+        self.task_input.setPlaceholderText("输入任务内容")
+        
+        # 获取主输入框的内容并填充
+        existing_text = self.new_task_input.text().strip()
+        if existing_text:
+            self.task_input.setText(existing_text)
+            # 清空主输入框
+            self.new_task_input.clear()
+        
+        # 优先级选择
+        priority_label = QLabel("优先级:")
+        priority_label.setStyleSheet("font-weight: bold;")
+        self.priority_combo = QPushButton("选择优先级")
+        self.priority_combo.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                padding: 8px;
+                border: 1px solid #E0E0E0;
+                border-radius: 4px;
+            }
+        """)
+        self.selected_priority = None
+        self.priority_combo.clicked.connect(self.show_priority_menu)
+        
+        # 标签选择区域
+        tags_label = QLabel("选择标签 (点击添加):")
+        tags_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        
+        # 标签按钮滚动区域
+        tags_scroll = QScrollArea()
+        tags_scroll.setMaximumHeight(120)
+        tags_scroll.setWidgetResizable(True)
+        tags_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tags_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        tags_widget = QWidget()
+        self.tags_flow_layout = QVBoxLayout(tags_widget)
+        self.tags_flow_layout.setContentsMargins(5, 5, 5, 5)
+        self.tags_flow_layout.setSpacing(5)
+        
+        # 创建标签按钮的水平布局容器
+        self.tags_button_container = QWidget()
+        self.tags_button_layout = QHBoxLayout(self.tags_button_container)
+        self.tags_button_layout.setSpacing(5)
+        
+        # 获取现有标签并创建按钮
+        existing_tags = self.file_manager.get_todo_tags()
+        self.selected_tags = set()
+        self.update_todo_tag_buttons(existing_tags)
+        
+        self.tags_flow_layout.addWidget(self.tags_button_container)
+        self.tags_flow_layout.addStretch()
+        
+        tags_scroll.setWidget(tags_widget)
+        
+        # 新标签管理
+        new_tag_layout = QHBoxLayout()
+        new_tag_layout.setContentsMargins(0, 10, 0, 0)
+        
+        self.new_todo_tag_input = QLineEdit()
+        self.new_todo_tag_input.setPlaceholderText("添加新标签...")
+        self.new_todo_tag_input.setStyleSheet("""
+            QLineEdit {
+                padding: 6px 10px;
+                border: 1px solid #E0E0E0;
+                border-radius: 4px;
+            }
+        """)
+        
+        add_tag_btn = QPushButton("添加到标签库")
+        add_tag_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        add_tag_btn.clicked.connect(self.add_new_todo_tag_to_library)
+        
+        new_tag_layout.addWidget(QLabel("新标签:"))
+        new_tag_layout.addWidget(self.new_todo_tag_input, 1)
+        new_tag_layout.addWidget(add_tag_btn)
+        
+        # 按钮区域
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 15, 0, 0)
+        
+        create_btn = QPushButton("创建任务")
+        create_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5D3FD3;
+                color: white;
+                padding: 8px 16px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #4A2FB8;
+            }
+        """)
+        create_btn.clicked.connect(lambda: self.do_create_task(dialog))
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #EEEEEE;
+                color: #424242;
+                padding: 8px 16px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(create_btn)
+        
+        # 添加所有组件到主布局
+        layout.addWidget(task_label)
+        layout.addWidget(self.task_input)
+        layout.addWidget(priority_label)
+        layout.addWidget(self.priority_combo)
+        layout.addWidget(tags_label)
+        layout.addWidget(tags_scroll, 1)
+        layout.addLayout(new_tag_layout)
+        layout.addLayout(btn_layout)
+        
+        dialog.exec()
+    
+    def show_priority_menu(self):
+        """显示优先级选择菜单"""
+        menu = QMenu(self)
+        
+        priorities = [
+            ("High", "高优先级", "#FF6B6B"),
+            ("Medium", "中优先级", "#FFD166"),
+            ("Low", "低优先级", "#06D6A0"),
+            ("None", "无优先级", "#E0E0E0")
+        ]
+        
+        for value, text, color in priorities:
+            action = menu.addAction(text)
+            action.triggered.connect(lambda checked, v=value, t=text: self.set_priority(v, t))
+        
+        menu.exec(self.priority_combo.mapToGlobal(self.priority_combo.rect().bottomLeft()))
+    
+    def set_priority(self, value, text):
+        """设置选中的优先级"""
+        self.selected_priority = value if value != "None" else None
+        self.priority_combo.setText(text)
+    
+    def update_todo_tag_buttons(self, tags):
+        """更新TODO标签按钮显示"""
+        # 清除现有按钮
+        while self.tags_button_layout.count():
+            child = self.tags_button_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        # 创建标签按钮
+        for tag in tags:
+            tag_btn = QPushButton(f"#{tag}")
+            tag_btn.setCheckable(True)
+            tag_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E8EAF6;
+                    color: #3F51B5;
+                    border: 1px solid #C5CAE9;
+                    border-radius: 15px;
+                    padding: 5px 12px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #C5CAE9;
+                }
+                QPushButton:checked {
+                    background-color: #3F51B5;
+                    color: white;
+                }
+            """)
+            tag_btn.clicked.connect(lambda checked, t=tag: self.toggle_todo_tag(t, checked))
+            self.tags_button_layout.addWidget(tag_btn)
+        
+        # 添加弹性空间
+        self.tags_button_layout.addStretch()
+    
+    def toggle_todo_tag(self, tag, checked):
+        """切换TODO标签选择状态"""
+        if checked:
+            self.selected_tags.add(tag)
+        else:
+            self.selected_tags.discard(tag)
+    
+    def add_new_todo_tag_to_library(self):
+        """添加新的TODO标签到标签库"""
+        new_tag = self.new_todo_tag_input.text().strip()
+        if not new_tag:
+            QMessageBox.warning(self, "输入错误", "请输入标签名称")
+            return
+        
+        # 获取现有标签
+        existing_tags = self.file_manager.get_todo_tags()
+        
+        # 检查是否已存在
+        if new_tag in existing_tags:
+            QMessageBox.information(self, "提示", f"标签 '{new_tag}' 已存在")
+            return
+        
+        # 添加新标签并保存
+        new_tags_list = existing_tags + [new_tag]
+        if self.file_manager.set_todo_tags(new_tags_list):
+            QMessageBox.information(self, "成功", f"标签 '{new_tag}' 已添加到标签库")
+            # 更新按钮显示
+            self.update_todo_tag_buttons(new_tags_list)
+            # 清空输入框
+            self.new_todo_tag_input.clear()
+            # 自动选中新添加的标签
+            self.selected_tags.add(new_tag)
+            # 更新按钮状态
+            for i in range(self.tags_button_layout.count() - 1):  # -1 因为最后一个是stretch
+                btn = self.tags_button_layout.itemAt(i).widget()
+                if btn and btn.text() == f"#{new_tag}":
+                    btn.setChecked(True)
+                    break
+        else:
+            QMessageBox.critical(self, "错误", "保存标签失败")
+    
+    def do_create_task(self, dialog):
+        """执行任务创建"""
+        task_text = self.task_input.text().strip()
+        if not task_text:
+            QMessageBox.warning(self, "输入错误", "任务内容不能为空")
+            return
+        
+        # 获取选中的标签和优先级
+        tags = list(self.selected_tags) if self.selected_tags else None
+        priority = self.selected_priority
+        
+        # 添加任务到列表
+        self.add_task_to_list(task_text, completed=False, priority=priority, tags=tags)
+        
+        # 更新日记文件
+        self.update_diary_tasks()
+        
+        dialog.accept()
 
     def show_todo_context_menu(self, pos):
         item = self.todo_list.itemAt(pos)
@@ -264,6 +546,12 @@ class TodayTODOView(QWidget):
         # 编辑任务
         edit_action = menu.addAction("编辑任务")
         edit_action.triggered.connect(lambda: self.edit_task(item))
+        
+        # 编辑标签和优先级
+        edit_tags_action = menu.addAction("编辑标签和优先级")
+        edit_tags_action.triggered.connect(lambda: self.edit_task_tags_priority(item))
+        
+        menu.addSeparator()
         
         # 删除任务
         delete_action = menu.addAction("删除任务")
@@ -323,6 +611,295 @@ class TodayTODOView(QWidget):
                 text_label.setText(new_text.strip())
         # 保存日记
         self.update_diary_tasks()
+    
+    def edit_task_tags_priority(self, item):
+        """编辑任务的标签和优先级"""
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("编辑任务标签和优先级")
+        dialog.setFixedSize(500, 400)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 15, 20, 15)
+        layout.setSpacing(15)
+        
+        # 任务内容显示（只读）
+        task_label = QLabel(f"任务: {task_data['text']}")
+        task_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #333;")
+        task_label.setWordWrap(True)
+        
+        # 优先级选择
+        priority_label = QLabel("优先级:")
+        priority_label.setStyleSheet("font-weight: bold;")
+        self.edit_priority_combo = QPushButton("选择优先级")
+        self.edit_priority_combo.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                padding: 8px;
+                border: 1px solid #E0E0E0;
+                border-radius: 4px;
+            }
+        """)
+        self.edit_selected_priority = task_data.get('priority')
+        
+        # 设置当前优先级显示
+        priority_text = {
+            "High": "高优先级",
+            "Medium": "中优先级", 
+            "Low": "低优先级",
+            None: "无优先级"
+        }.get(self.edit_selected_priority, "无优先级")
+        self.edit_priority_combo.setText(priority_text)
+        self.edit_priority_combo.clicked.connect(self.show_edit_priority_menu)
+        
+        # 标签选择区域
+        tags_label = QLabel("选择标签 (点击选择/取消):")
+        tags_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        
+        # 标签按钮滚动区域
+        tags_scroll = QScrollArea()
+        tags_scroll.setMaximumHeight(120)
+        tags_scroll.setWidgetResizable(True)
+        tags_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tags_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        tags_widget = QWidget()
+        self.edit_tags_flow_layout = QVBoxLayout(tags_widget)
+        self.edit_tags_flow_layout.setContentsMargins(5, 5, 5, 5)
+        self.edit_tags_flow_layout.setSpacing(5)
+        
+        # 创建标签按钮的水平布局容器
+        self.edit_tags_button_container = QWidget()
+        self.edit_tags_button_layout = QHBoxLayout(self.edit_tags_button_container)
+        self.edit_tags_button_layout.setSpacing(5)
+        
+        # 获取现有标签并创建按钮
+        existing_tags = self.file_manager.get_todo_tags()
+        self.edit_selected_tags = set(task_data.get('tags', []))
+        self.update_edit_todo_tag_buttons(existing_tags)
+        
+        self.edit_tags_flow_layout.addWidget(self.edit_tags_button_container)
+        self.edit_tags_flow_layout.addStretch()
+        
+        tags_scroll.setWidget(tags_widget)
+        
+        # 按钮区域
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 15, 0, 0)
+        
+        save_btn = QPushButton("保存")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5D3FD3;
+                color: white;
+                padding: 8px 16px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #4A2FB8;
+            }
+        """)
+        save_btn.clicked.connect(lambda: self.save_task_edit(dialog, item))
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #EEEEEE;
+                color: #424242;
+                padding: 8px 16px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(save_btn)
+        
+        # 添加所有组件到主布局
+        layout.addWidget(task_label)
+        layout.addWidget(priority_label)
+        layout.addWidget(self.edit_priority_combo)
+        layout.addWidget(tags_label)
+        layout.addWidget(tags_scroll, 1)
+        layout.addLayout(btn_layout)
+        
+        dialog.exec()
+    
+    def show_edit_priority_menu(self):
+        """显示编辑优先级选择菜单"""
+        menu = QMenu(self)
+        
+        priorities = [
+            ("High", "高优先级", "#FF6B6B"),
+            ("Medium", "中优先级", "#FFD166"),
+            ("Low", "低优先级", "#06D6A0"),
+            ("None", "无优先级", "#E0E0E0")
+        ]
+        
+        for value, text, color in priorities:
+            action = menu.addAction(text)
+            action.triggered.connect(lambda checked, v=value, t=text: self.set_edit_priority(v, t))
+        
+        menu.exec(self.edit_priority_combo.mapToGlobal(self.edit_priority_combo.rect().bottomLeft()))
+    
+    def set_edit_priority(self, value, text):
+        """设置编辑的优先级"""
+        self.edit_selected_priority = value if value != "None" else None
+        self.edit_priority_combo.setText(text)
+    
+    def update_edit_todo_tag_buttons(self, tags):
+        """更新编辑TODO标签按钮显示"""
+        # 清除现有按钮
+        while self.edit_tags_button_layout.count():
+            child = self.edit_tags_button_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        # 创建标签按钮
+        for tag in tags:
+            tag_btn = QPushButton(f"#{tag}")
+            tag_btn.setCheckable(True)
+            tag_btn.setChecked(tag in self.edit_selected_tags)
+            tag_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E8EAF6;
+                    color: #3F51B5;
+                    border: 1px solid #C5CAE9;
+                    border-radius: 15px;
+                    padding: 5px 12px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #C5CAE9;
+                }
+                QPushButton:checked {
+                    background-color: #3F51B5;
+                    color: white;
+                }
+            """)
+            tag_btn.clicked.connect(lambda checked, t=tag: self.toggle_edit_todo_tag(t, checked))
+            self.edit_tags_button_layout.addWidget(tag_btn)
+        
+        # 添加弹性空间
+        self.edit_tags_button_layout.addStretch()
+    
+    def toggle_edit_todo_tag(self, tag, checked):
+        """切换编辑TODO标签选择状态"""
+        if checked:
+            self.edit_selected_tags.add(tag)
+        else:
+            self.edit_selected_tags.discard(tag)
+    
+    def save_task_edit(self, dialog, item):
+        """保存任务编辑"""
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        
+        # 更新数据
+        task_data['priority'] = self.edit_selected_priority
+        task_data['tags'] = list(self.edit_selected_tags) if self.edit_selected_tags else None
+        
+        item.setData(Qt.ItemDataRole.UserRole, task_data)
+        
+        # 重新创建显示组件
+        self.refresh_task_display(item)
+        
+        # 保存到日记
+        self.update_diary_tasks()
+        
+        dialog.accept()
+    
+    def refresh_task_display(self, item):
+        """刷新单个任务的显示"""
+        task_data = item.data(Qt.ItemDataRole.UserRole)
+        
+        # 重新创建任务显示组件
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(4)
+        
+        # 状态图标
+        status_label = QLabel("✓" if task_data['completed'] else "◌")
+        status_label.setFont(QFont("Arial", 26))
+        status_label.setStyleSheet(f"color: {'#757575' if task_data['completed'] else '#5D3FD3'}; min-width: 20px;")
+        layout.addWidget(status_label)
+        
+        # 任务文本
+        task_label = QLabel(task_data['text'] if task_data['text'].strip() else "(无标题任务)")
+        task_label.setFont(QFont("Arial", 18))
+        task_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        if task_data['completed']:
+            task_label.setStyleSheet("color: #757575; text-decoration: line-through;")
+        layout.addWidget(task_label, 1)
+        
+        # 优先级标签
+        if task_data.get('priority'):
+            priority = task_data['priority']
+            priority_label = QLabel(priority)
+            priority_label.setFont(QFont("Arial", 18))
+            priority_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # 根据优先级设置颜色
+            priority_lower = priority.lower()
+            if priority_lower == 'high':
+                bg_color = "#FF6B6B"
+            elif priority_lower == 'medium':
+                bg_color = "#FFD166"
+            elif priority_lower == 'low':
+                bg_color = "#06D6A0"
+            else:
+                bg_color = "#5D3FD3"
+            
+            priority_label.setStyleSheet(f"""
+                background-color: {bg_color};
+                color: {'white' if priority_lower != 'medium' else 'black'};
+                border-radius: 10px;
+                min-width: 50px;
+            """)
+            layout.addWidget(priority_label)
+        
+        # 标签徽章
+        if task_data.get('tags'):
+            tags_widget = QWidget()
+            tags_layout = QHBoxLayout(tags_widget)
+            tags_layout.setContentsMargins(0, 0, 0, 0)
+            tags_layout.setSpacing(2)
+            
+            # 标签颜色映射
+            tag_colors = {
+                "工作": "#5D3FD3",
+                "学习": "#06D6A0",
+                "生活": "#FFD166",
+                "重要": "#FF6B6B",
+                "紧急": "#EF476F",
+                "个人": "#118AB2"
+            }
+            
+            for tag in task_data['tags']:
+                tag_label = QLabel(f"#{tag}")
+                tag_label.setFont(QFont("Arial", 18))
+                tag_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                tag_label.setStyleSheet(f"""
+                    background-color: {tag_colors.get(tag, '#6C757D')};
+                    color: white;
+                    border-radius: 10px;
+                    min-width: 50px;
+                """)
+                tags_layout.addWidget(tag_label)
+            
+            layout.addWidget(tags_widget)
+        
+        # 设置小部件
+        widget.adjustSize()
+        min_height = max(widget.sizeHint().height(), 50)
+        item.setSizeHint(QSize(widget.sizeHint().width(), min_height))
+        
+        # 更新列表项
+        self.todo_list.setItemWidget(item, widget)
             
     def delete_task(self, item):
         row = self.todo_list.row(item)

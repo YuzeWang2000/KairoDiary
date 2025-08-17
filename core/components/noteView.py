@@ -1,8 +1,10 @@
 import os
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QTextEdit, QLineEdit, QListWidgetItem,
-    QMessageBox, QInputDialog, QLabel, QMenu, QComboBox, QDialog
+    QMessageBox, QInputDialog, QLabel, QMenu, QComboBox, QDialog,
+    QScrollArea
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QDateTime
 from PyQt6.QtGui import QFont, QIcon
@@ -15,6 +17,41 @@ class QuickNoteView(QWidget):
         self.file_manager = file_manager
         self.filter_tag = None
         self.init_ui()
+    
+    def format_time_human_readable(self, timestamp):
+        """将时间戳转换为人类可读的格式"""
+        try:
+            modified_time = datetime.fromtimestamp(timestamp)
+            now = datetime.now()
+            
+            # 计算时间差
+            time_diff = now - modified_time
+            
+            if time_diff.days == 0:
+                # 今天
+                if time_diff.seconds < 3600:  # 1小时内
+                    minutes = time_diff.seconds // 60
+                    if minutes == 0:
+                        return "刚刚"
+                    elif minutes < 60:
+                        return f"{minutes}分钟前"
+                else:  # 1小时以上
+                    hours = time_diff.seconds // 3600
+                    return f"{hours}小时前"
+            elif time_diff.days == 1:
+                return "昨天"
+            elif time_diff.days < 7:
+                return f"{time_diff.days}天前"
+            elif time_diff.days < 30:
+                weeks = time_diff.days // 7
+                return f"{weeks}周前"
+            elif time_diff.days < 365:
+                months = time_diff.days // 30
+                return f"{months}个月前"
+            else:
+                return modified_time.strftime("%Y年%m月%d日")
+        except:
+            return "未知时间"
         
     def init_ui(self):
         main_layout = QVBoxLayout()
@@ -165,6 +202,13 @@ class QuickNoteView(QWidget):
             # 从文件名提取元数据
             filename = os.path.basename(note_path)
             
+            # 获取文件修改时间
+            try:
+                file_modified_time = os.path.getmtime(note_path)
+                human_time = self.format_time_human_readable(file_modified_time)
+            except:
+                human_time = "未知时间"
+            
             # 尝试解析文件名格式
             note_date = ""
             note_title = ""
@@ -212,11 +256,18 @@ class QuickNoteView(QWidget):
             
             title_layout.addStretch()
             
-            # 日期
-            date_label = QLabel(note_date)
-            date_label.setFont(QFont("Arial", 10))
-            date_label.setStyleSheet("color: #757575;")
-            title_layout.addWidget(date_label)
+            # 修改时间（人类可读格式）
+            time_label = QLabel(human_time)
+            time_label.setFont(QFont("Arial", 10))
+            time_label.setStyleSheet("color: #757575;")
+            title_layout.addWidget(time_label)
+            
+            # 如果有创建日期，也显示
+            if note_date:
+                date_label = QLabel(f"创建: {note_date}")
+                date_label.setFont(QFont("Arial", 9))
+                date_label.setStyleSheet("color: #9E9E9E;")
+                title_layout.addWidget(date_label)
             
             layout.addLayout(title_layout)
             
@@ -308,23 +359,91 @@ class QuickNoteView(QWidget):
         """创建新笔记"""
         dialog = QDialog(self)
         dialog.setWindowTitle("新建笔记")
-        dialog.setFixedSize(400, 250)
+        dialog.setFixedSize(500, 450)
         
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(20, 15, 20, 15)
         layout.setSpacing(15)
         
+        # 笔记标题
         title_label = QLabel("笔记标题:")
         title_label.setStyleSheet("font-weight: bold;")
         self.new_note_title = QLineEdit()
         self.new_note_title.setPlaceholderText("输入笔记标题")
         
+        # 标签输入
         tags_label = QLabel("标签 (可选, 用逗号分隔):")
         tags_label.setStyleSheet("font-weight: bold;")
         self.new_note_tags = QLineEdit()
         self.new_note_tags.setPlaceholderText("例如: 工作,项目")
         
+        # 已有标签区域
+        existing_tags_label = QLabel("已有标签 (点击添加):")
+        existing_tags_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        
+        # 标签按钮滚动区域
+        tags_scroll = QScrollArea()
+        tags_scroll.setMaximumHeight(120)
+        tags_scroll.setWidgetResizable(True)
+        tags_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tags_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        tags_widget = QWidget()
+        self.tags_flow_layout = QVBoxLayout(tags_widget)
+        self.tags_flow_layout.setContentsMargins(5, 5, 5, 5)
+        self.tags_flow_layout.setSpacing(5)
+        
+        # 创建标签按钮的水平布局容器
+        self.tags_button_container = QWidget()
+        self.tags_button_layout = QHBoxLayout(self.tags_button_container)
+        self.tags_button_layout.setSpacing(5)
+        
+        # 获取现有标签并创建按钮
+        existing_tags = self.file_manager.get_note_tags()
+        self.update_tag_buttons(existing_tags)
+        
+        self.tags_flow_layout.addWidget(self.tags_button_container)
+        self.tags_flow_layout.addStretch()
+        
+        tags_scroll.setWidget(tags_widget)
+        
+        # 新标签管理
+        new_tag_layout = QHBoxLayout()
+        new_tag_layout.setContentsMargins(0, 10, 0, 0)
+        
+        self.new_tag_input = QLineEdit()
+        self.new_tag_input.setPlaceholderText("添加新标签...")
+        self.new_tag_input.setStyleSheet("""
+            QLineEdit {
+                padding: 6px 10px;
+                border: 1px solid #E0E0E0;
+                border-radius: 4px;
+            }
+        """)
+        
+        add_tag_btn = QPushButton("添加到标签库")
+        add_tag_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        add_tag_btn.clicked.connect(self.add_new_tag_to_library)
+        
+        new_tag_layout.addWidget(QLabel("新标签:"))
+        new_tag_layout.addWidget(self.new_tag_input, 1)
+        new_tag_layout.addWidget(add_tag_btn)
+        
+        # 按钮区域
         btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 15, 0, 0)
+        
         create_btn = QPushButton("创建")
         create_btn.setStyleSheet("""
             QPushButton {
@@ -356,14 +475,95 @@ class QuickNoteView(QWidget):
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(create_btn)
         
+        # 添加所有组件到主布局
         layout.addWidget(title_label)
         layout.addWidget(self.new_note_title)
         layout.addWidget(tags_label)
         layout.addWidget(self.new_note_tags)
-        layout.addStretch(1)
+        layout.addWidget(existing_tags_label)
+        layout.addWidget(tags_scroll, 1)  # 给标签区域更多空间
+        layout.addLayout(new_tag_layout)
         layout.addLayout(btn_layout)
         
         dialog.exec()
+    
+    def update_tag_buttons(self, tags):
+        """更新标签按钮显示"""
+        # 清除现有按钮
+        while self.tags_button_layout.count():
+            child = self.tags_button_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        # 创建标签按钮
+        for tag in tags:
+            tag_btn = QPushButton(f"#{tag}")
+            tag_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #E8EAF6;
+                    color: #3F51B5;
+                    border: 1px solid #C5CAE9;
+                    border-radius: 15px;
+                    padding: 5px 12px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #C5CAE9;
+                }
+                QPushButton:pressed {
+                    background-color: #9FA8DA;
+                }
+            """)
+            tag_btn.clicked.connect(lambda checked, t=tag: self.add_tag_to_input(t))
+            self.tags_button_layout.addWidget(tag_btn)
+        
+        # 添加弹性空间
+        self.tags_button_layout.addStretch()
+
+    def add_tag_to_input(self, tag):
+        """将标签添加到输入框"""
+        current_text = self.new_note_tags.text().strip()
+        
+        # 获取当前已输入的标签
+        existing_tags = []
+        if current_text:
+            existing_tags = [t.strip() for t in current_text.split(',') if t.strip()]
+        
+        # 检查是否已存在该标签
+        if tag not in existing_tags:
+            if existing_tags:
+                new_text = ', '.join(existing_tags + [tag])
+            else:
+                new_text = tag
+            self.new_note_tags.setText(new_text)
+
+    def add_new_tag_to_library(self):
+        """添加新标签到标签库"""
+        new_tag = self.new_tag_input.text().strip()
+        if not new_tag:
+            QMessageBox.warning(self, "输入错误", "请输入标签名称")
+            return
+        
+        # 获取现有标签
+        existing_tags = self.file_manager.get_note_tags()
+        
+        # 检查是否已存在
+        if new_tag in existing_tags:
+            QMessageBox.information(self, "提示", f"标签 '{new_tag}' 已存在")
+            return
+        
+        # 添加新标签并保存
+        new_tags_list = existing_tags + [new_tag]
+        if self.file_manager.set_note_tags(new_tags_list):
+            QMessageBox.information(self, "成功", f"标签 '{new_tag}' 已添加到标签库")
+            # 更新按钮显示
+            self.update_tag_buttons(new_tags_list)
+            # 清空输入框
+            self.new_tag_input.clear()
+            # 同时添加到当前笔记的标签输入框
+            self.add_tag_to_input(new_tag)
+        else:
+            QMessageBox.critical(self, "错误", "保存标签失败")
     
     def do_create_note(self, dialog):
         """执行笔记创建"""
@@ -395,11 +595,13 @@ class QuickNoteView(QWidget):
             if note_path is not None:
                 print(f"新笔记已创建: {note_path}")
                 self.note_created.emit(filename)
+            else:
+                QMessageBox.critical(self, "错误", "无法创建笔记")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"无法创建笔记: {str(e)}")
             return
+            
         dialog.accept()
-        self.refresh()
         
         # 自动打开新笔记
         self.open_note_editor(filename)
@@ -408,7 +610,6 @@ class QuickNoteView(QWidget):
         """打开选中的笔记"""
         note_path = item.data(Qt.ItemDataRole.UserRole)
         filename = os.path.basename(note_path)
-        # note_title = os.path.basename(note_path)[9:-3].replace('_', ' ') if '_' in note_path else os.path.basename(note_path)[:-3]
         self.open_note_editor(filename)
     
     def open_note_editor(self, filename):
@@ -447,7 +648,10 @@ class QuickNoteView(QWidget):
             return_path = self.file_manager.save_note(filename, editor.toPlainText())
             if return_path is None:
                 QMessageBox.warning(self, "保存失败", "无法保存笔记内容")
-    
+        
+        # 对话框关闭后再刷新列表，避免竞态条件
+        self.refresh()
+
     def show_note_context_menu(self, pos):
         """显示笔记上下文菜单"""
         item = self.notes_list.itemAt(pos)

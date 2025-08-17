@@ -21,24 +21,35 @@ def main():
     base_path = os.path.join(documents_path, "KairoDiaryData")
     
     login_win = None
+    main_win = None
 
 
     def app_loggin():
         """处理登出请求"""
         
         account_manager = AccountManager(base_path)
-        nonlocal login_win
-        if login_win is not None:
-            print("用户请求登出")
+        nonlocal login_win, main_win
+        
+        # 如果有主窗口正在运行，先关闭它
+        if main_win is not None:
+            print("用户请求登出，关闭主窗口")
+            main_win.close()
+            main_win = None
         else:
             print("用户未登录，显示登录窗口")
         
         login_win = LoginWindow(account_manager)
         login_win.login_success.connect(on_login_success)
-        login_win.show()
+        
+        # 使用 exec() 方法显示模态对话框
+        result = login_win.exec()
+        if result == LoginWindow.DialogCode.Rejected:
+            # 用户取消登录，彻底退出应用
+            sys.exit(0)
 
     def on_login_success(username):
-            login_win.close()
+            # 不需要手动关闭，accept() 已经处理了
+            nonlocal main_win
             file_manager = FileManager(base_path, username)
             main_win = MainWindow(username, file_manager)
             main_win.logout_requested.connect(app_loggin)
