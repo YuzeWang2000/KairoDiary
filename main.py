@@ -1,9 +1,24 @@
 import sys
 import os
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QIcon
 
 from core.server import AccountManager, FileManager
 from core.window import LoginWindow, MainWindow
+
+
+def get_resource_path(relative_path):
+    """获取资源文件的正确路径，适用于开发和打包后的环境"""
+    try:
+        # PyInstaller 创建的临时文件夹
+        base_path = sys._MEIPASS
+    except AttributeError:
+        # 开发环境
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
+
+
 # ======================
 # 应用入口
 # ======================
@@ -16,9 +31,38 @@ def main():
 
     # 设置应用程序图标（会显示在任务栏等位置）
     app.setApplicationDisplayName("Kairo Diary")
+    
+    # 设置应用程序图标，根据操作系统选择合适的格式
+    if sys.platform == "darwin":  # macOS
+        icon_path = get_resource_path("assets/KairoDiary.icns")
+    elif sys.platform == "win32":  # Windows
+        icon_path = get_resource_path("assets/KairoDiary.ico")
+    else:  # Linux 和其他系统
+        # 优先尝试 .ico 文件，如果不存在则尝试 .png
+        icon_path = get_resource_path("assets/KairoDiary.ico")
+        if not os.path.exists(icon_path):
+            icon_path = get_resource_path("assets/KairoDiary.png")
+    
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+        print(f"应用程序图标已设置: {icon_path}")
+    else:
+        print(f"图标文件未找到: {icon_path}")
+    
     # 获取当前用户的文档目录
     documents_path = os.path.join(os.path.expanduser("~"), "MyDocuments")
     base_path = os.path.join(documents_path, "KairoDiaryData")
+    
+    # 如果目录不存在，自动创建
+    try:
+        os.makedirs(base_path, exist_ok=True)
+        print(f"数据目录已确保存在: {base_path}")
+    except OSError as e:
+        print(f"无法创建数据目录 {base_path}: {e}")
+        # 使用当前目录作为备用方案
+        base_path = os.path.join(os.getcwd(), "KairoDiaryData")
+        os.makedirs(base_path, exist_ok=True)
+        print(f"使用备用数据目录: {base_path}")
     
     login_win = None
     main_win = None
@@ -53,7 +97,7 @@ def main():
             file_manager = FileManager(base_path, username)
             main_win = MainWindow(username, file_manager)
             main_win.logout_requested.connect(app_loggin)
-            main_win.showFullScreen()
+            main_win.showMaximized()  # 使用最大化模式，保留标题栏
 
     app_loggin()
         
