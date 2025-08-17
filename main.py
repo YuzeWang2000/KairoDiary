@@ -470,14 +470,28 @@ class LoginWindow(QWidget):
                 QMessageBox.critical(self, "注册失败", message)
 
 class MainWindow(QMainWindow):
+    logout_requested = pyqtSignal()
     def __init__(self, username, file_manager):
         super().__init__()
         self.username = username
         self.file_manager = file_manager
         self.current_date = QDate.currentDate()
         self.init_ui()
-        
+
+
     def init_ui(self):
+
+        # 创建菜单栏
+        menubar = self.menuBar()
+        
+        # 1. 账户菜单
+        account_menu = menubar.addMenu("账户(&A)")
+        # 添加退出账户选项
+        logout_action = QAction("退出当前账户", self)
+        logout_action.triggered.connect(self.logout)
+        account_menu.addAction(logout_action)
+
+
         self.setWindowTitle(f"KairoDiary - {self.username}")
         self.setGeometry(100, 100, 1000, 700)
         
@@ -589,7 +603,22 @@ class MainWindow(QMainWindow):
         """处理新笔记创建事件"""
         print(f"新笔记已创建: {filename}")
         self.statusBar().showMessage(f"新笔记已创建: {filename}", 3000)
+        self.diary_view.editor.load_date(QDate.currentDate())  # 确保将新笔记添加到今天
         self.diary_view.editor.add_note(filename)
+    
+    def logout(self):
+        """触发退出登录流程"""
+        # 确认对话框
+        reply = QMessageBox.question(
+            self, '确认退出',
+            '确定要退出当前账户吗？',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.logout_requested.emit()
+            self.close()  # 关闭主窗口
 
 class DiaryView(QWidget):
     # 添加返回信号
@@ -606,6 +635,7 @@ class DiaryView(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(5)
+        
         
         # 顶部导航栏
         nav_layout = QHBoxLayout()
@@ -767,6 +797,8 @@ class CalendarView(QWidget):
         #     }
         # """)
         self.calendar.clicked.connect(self.on_date_selected)
+        # 连接页面变化信号，当月份或年份改变时重新标记日记日期
+        self.calendar.currentPageChanged.connect(self.mark_diary_dates)
         layout.addWidget(self.calendar)
         
         # 标记有日记的日期
@@ -780,6 +812,9 @@ class CalendarView(QWidget):
     
     def mark_diary_dates(self):
         """标记有日记的日期"""
+        # 清除所有日期的格式，重新开始
+        self.calendar.setDateTextFormat(QDate(), QTextCharFormat())
+        
         # 获取当前显示的月份
         year = self.calendar.yearShown()
         month = self.calendar.monthShown()
@@ -2299,36 +2334,39 @@ def main():
     app = QApplication(sys.argv)
 
     # 设置应用程序图标（会显示在任务栏等位置）
-    # app.setWindowIcon(QIcon('./resources/icon/kd.ico'))
     app.setApplicationDisplayName("Kairo Diary")
     # 获取当前用户的文档目录
     documents_path = os.path.join(os.path.expanduser("~"), "MyDocuments")
     base_path = os.path.join(documents_path, "KairoDiaryData")
     
-    account_manager = AccountManager(base_path)
-    login_win = LoginWindow(account_manager)
-    test = True
-    if test:
-        username = "test"
-        file_manager = FileManager(base_path, username)
-        main_win = MainWindow(username, file_manager)
-        # main_win.show()
-        main_win.showFullScreen()
+    login_win = None
 
 
-    else:
-        def on_login_success(username):
-                login_win.close()
-                file_manager = FileManager(base_path, username)
-                main_win = MainWindow(username, file_manager)
-                # main_win.show()
-                main_win.showFullScreen()
-            
+    def app_loggin():
+        """处理登出请求"""
+        
+        account_manager = AccountManager(base_path)
+        nonlocal login_win
+        if login_win is not None:
+            print("用户请求登出")
+        else:
+            print("用户未登录，显示登录窗口")
+        
+        login_win = LoginWindow(account_manager)
         login_win.login_success.connect(on_login_success)
         login_win.show()
+
+    def on_login_success(username):
+            login_win.close()
+            # login_win.deleteLater()
+            file_manager = FileManager(base_path, username)
+            main_win = MainWindow(username, file_manager)
+            main_win.logout_requested.connect(app_loggin)
+            # main_win.show()
+            main_win.showFullScreen()
+
+    app_loggin()
         
-        
-    
     sys.exit(app.exec())
 
 if __name__ == "__main__":
