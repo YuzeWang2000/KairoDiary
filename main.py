@@ -2358,11 +2358,9 @@ def main():
 
     def on_login_success(username):
             login_win.close()
-            # login_win.deleteLater()
             file_manager = FileManager(base_path, username)
             main_win = MainWindow(username, file_manager)
             main_win.logout_requested.connect(app_loggin)
-            # main_win.show()
             main_win.showFullScreen()
 
     app_loggin()
