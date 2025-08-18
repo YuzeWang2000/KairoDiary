@@ -10,7 +10,8 @@ from PyQt6.QtCore import Qt, QDate, pyqtSignal, QDateTime
 from PyQt6.QtGui import QFont, QIcon
 
 class QuickNoteView(QWidget):
-    note_saved = pyqtSignal(QDateTime)
+    notename_changed = pyqtSignal(str, str) # old_filename, new_filename
+    note_deleted = pyqtSignal(str)
     note_created = pyqtSignal(str)
     def __init__(self, file_manager):
         super().__init__()
@@ -75,7 +76,6 @@ class QuickNoteView(QWidget):
                 font-size: 14px;
                 border: 1px solid #E0E0E0;
                 border-radius: 6px;
-                background-color: #FFFFFF;
             }
         """)
         self.search_input.textChanged.connect(self.refresh)
@@ -143,7 +143,6 @@ class QuickNoteView(QWidget):
         self.notes_list = QListWidget()
         self.notes_list.setStyleSheet("""
             QListWidget {
-                background-color: #FFFFFF;
                 border: 1px solid #E0E0E0;
                 border-radius: 8px;
             }
@@ -251,7 +250,7 @@ class QuickNoteView(QWidget):
             
             title_label = QLabel(note_title if note_title else "未命名笔记")
             title_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-            title_label.setStyleSheet("color: #212121;")
+            # title_label.setStyleSheet("color: #212121;")
             title_layout.addWidget(title_label)
             
             title_layout.addStretch()
@@ -615,15 +614,22 @@ class QuickNoteView(QWidget):
     def open_note_editor(self, filename):
         """打开笔记编辑器"""
         print(f"打开笔记编辑器: {filename}")
+        success, result = self.file_manager.load_note(filename)
+        if success:
+            content = result  # 正常内容
+        else:
+            error = result   # 异常对象
+            if isinstance(error, FileNotFoundError):
+                content = f"文件不存在，{error}"
+                self.note_deleted.emit(filename)  # 如果文件不存在，发出删除信号
+            else:
+                content = f"加载失败，{error}"
         editor_dialog = QDialog(self)
         editor_dialog.setWindowTitle(f"编辑笔记: {filename}")
         editor_dialog.resize(600, 400)
         
         layout = QVBoxLayout(editor_dialog)
         editor = QTextEdit()
-
-
-        content = self.file_manager.load_note(filename)  # 确保文件存在
         editor.setPlainText(content)
 
         layout.addWidget(editor)
@@ -706,6 +712,7 @@ class QuickNoteView(QWidget):
             try:
                 os.rename(note_path, new_path)
                 self.refresh()
+                self.notename_changed.emit(filename, new_filename)
             except Exception as e:
                 QMessageBox.warning(self, "重命名失败", f"无法重命名笔记: {str(e)}")
     
@@ -725,6 +732,7 @@ class QuickNoteView(QWidget):
             try:
                 os.remove(note_path)
                 self.refresh()
+                self.note_deleted.emit(os.path.basename(note_path))
             except:
                 QMessageBox.warning(self, "删除失败", "无法删除笔记")
     
@@ -819,6 +827,7 @@ class QuickNoteView(QWidget):
             self.refresh()
             item.setSelected(True)  # 重新选中同一项目
             self.new_tag_input.clear()
+            self.notename_changed.emit(old_filename, new_filename)
         except:
             QMessageBox.warning(self, "操作失败", "无法添加标签")
     
@@ -848,5 +857,6 @@ class QuickNoteView(QWidget):
             os.rename(note_path, new_path)
             self.refresh()
             item.setSelected(True)  # 重新选中同一项目
+            self.notename_changed.emit(old_filename, new_filename)
         except:
             QMessageBox.warning(self, "操作失败", "无法移除标签")

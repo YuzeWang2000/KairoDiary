@@ -45,9 +45,9 @@ def main():
     
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-        print(f"应用程序图标已设置: {icon_path}")
-    else:
-        print(f"图标文件未找到: {icon_path}")
+    #     print(f"应用程序图标已设置: {icon_path}")
+    # else:
+    #     print(f"图标文件未找到: {icon_path}")
     
     # 获取当前用户的文档目录
     documents_path = os.path.join(os.path.expanduser("~"), "MyDocuments")
@@ -56,13 +56,13 @@ def main():
     # 如果目录不存在，自动创建
     try:
         os.makedirs(base_path, exist_ok=True)
-        print(f"数据目录已确保存在: {base_path}")
+        # print(f"数据目录已确保存在: {base_path}")
     except OSError as e:
-        print(f"无法创建数据目录 {base_path}: {e}")
+        # print(f"无法创建数据目录 {base_path}: {e}")
         # 使用当前目录作为备用方案
         base_path = os.path.join(os.getcwd(), "KairoDiaryData")
         os.makedirs(base_path, exist_ok=True)
-        print(f"使用备用数据目录: {base_path}")
+        # print(f"使用备用数据目录: {base_path}")
     
     login_win = None
     main_win = None
@@ -76,11 +76,11 @@ def main():
         
         # 如果有主窗口正在运行，先关闭它
         if main_win is not None:
-            print("用户请求登出，关闭主窗口")
+            # print("用户请求登出，关闭主窗口")
             main_win.close()
             main_win = None
-        else:
-            print("用户未登录，显示登录窗口")
+        # else:
+        #     print("用户未登录，显示登录窗口")
         
         login_win = LoginWindow(account_manager)
         login_win.login_success.connect(on_login_success)

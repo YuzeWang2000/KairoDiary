@@ -6,12 +6,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QSize, QDateTime, QTime
 from PyQt6.QtGui import QFont, QAction, QTextCursor
-
+from core.server import textServer
 class DiaryEditor(QWidget):
     diary_saved = pyqtSignal(QDateTime) 
     open_note_signal = pyqtSignal(str)  # 新增信号用于打开笔记
     def __init__(self, file_manager):
         super().__init__()
+        self.text_processor = textServer.TextProcessor()
         self.file_manager = file_manager
         self.current_date = QDate.currentDate()
         self.init_ui()
@@ -382,15 +383,15 @@ class DiaryEditor(QWidget):
         # 预定义的文本处理操作
         
         process_menu = menu.addMenu("文本处理")
-        # process_menu.setIcon(QIcon.fromTheme("edit-select"))
         # 占位函数
         placeholder_actions = [
-            ("大写转换", lambda: self.text_process_function('upper')),
-            ("小写转换", lambda: self.text_process_function('lower')),
+            ("大小写转换", lambda: self.text_process_function('upper_lower')),
+            ("首字母大写", lambda: self.text_process_function('capitalize')),
             ("标记重点", lambda: self.text_process_function('highlight')),
-            ("AI摘要", lambda: self.text_process_function('summarize')),
-            # ("插入日期时间", lambda: self.text_process_function('insert_datetime')),
-            # ("字数统计", lambda: self.text_process_function('show_word_count')),
+            ("拼写检查", lambda: self.text_process_function('spell_check')),
+            ("翻译", lambda: self.text_process_function('translate')),
+            ("润色", lambda: self.text_process_function('polish')),
+            ("总结", lambda: self.text_process_function('summarize'))
         ]
         
         for name, func in placeholder_actions:
@@ -407,21 +408,45 @@ class DiaryEditor(QWidget):
         if not selected_text:
             QMessageBox.information(self, "提示", "请先选择文本")
             return
+        
+        try:
+            # 使用 TextProcessor 处理文本
+            if action_type == 'upper_lower':
+                new_text = selected_text.swapcase()
+                method = "Traditional Method"
+            elif action_type == 'capitalize':
+                new_text = selected_text.capitalize()
+                method = "Traditional Method"
+            elif action_type == 'highlight':
+                if "<strong>" in selected_text and "</strong>" in selected_text:
+                    new_text = selected_text.replace("<strong>", "").replace("</strong>", "")
+                else:
+                    new_text = f"<strong>{selected_text}</strong>"
+                method = "Traditional Method"
+            elif action_type == 'spell_check':
+                new_text, method = self.text_processor.spell_check(selected_text)
+            elif action_type == 'translate':
+                new_text, method = self.text_processor.translate(selected_text)
+            elif action_type == 'polish':
+                new_text, method = self.text_processor.polish(selected_text)
+            elif action_type == 'summarize':
+                new_text, method = self.text_processor.summarize(selected_text)
+            else:
+                raise ValueError(f"未知操作类型: {action_type}")
             
-        # 占位实现
-        if action_type == 'upper':
-            new_text = selected_text.upper()
-        elif action_type == 'lower':
-            new_text = selected_text.lower()
-        elif action_type == 'highlight':
-            new_text = f"<strong>{selected_text}</strong>"
-        else:  # summarize
-            new_text = f"[AI摘要] {selected_text[:50]}..."
-        
-        cursor.insertText(new_text)
-        
-        # 实际应用中替换为真正的处理逻辑
-        QMessageBox.information(self, "文本处理", f"已应用: {action_type} 函数\n\n实际开发中需添加处理逻辑")
+            # 替换选中的文本
+            cursor.insertText(new_text)
+            
+            # 显示处理结果
+            QMessageBox.information(
+                self, 
+                "文本处理完成", 
+                f"处理类型: {action_type}\n使用方法: {method}\n\n原文: {selected_text[:50]}{'...' if len(selected_text) > 50 else ''}\n\n结果: {new_text[:50]}{'...' if len(new_text) > 50 else ''}"
+            )
+            
+        except Exception as e:
+            QMessageBox.critical(self, "处理错误", f"文本处理时发生错误:\n{str(e)}")
+            print(f"TextProcessor 错误: {e}")
 
     def add_note(self, filename):
         """
@@ -451,6 +476,27 @@ class DiaryEditor(QWidget):
         
         # 保存日记更新
         self.save_diary()
+
+    def remove_note(self, filename):
+        """
+        从笔记列表中移除指定的笔记
+        参数:
+            filename: 要移除的笔记文件名
+        """
+        for i in range(self.note_list.count()):
+            item = self.note_list.item(i)
+            stored_filename = item.data(Qt.ItemDataRole.UserRole)
+            
+            if stored_filename == filename:
+                # 找到匹配的项，删除它
+                self.note_list.takeItem(i)
+                print(f"已从日记中移除笔记: {filename}")
+                
+                # 保存日记更新
+                self.save_diary()
+                break
+        else:
+            print(f"未在当前日记中找到笔记: {filename}")
 
     def save_diary(self):
         # 构建Markdown内容
