@@ -60,8 +60,8 @@ class FileManager:
     def __save_config(self, config):
         """保存用户配置"""
         try:
-            print("保存配置:", config)  # 调试输出
-            print("配置路径:", self.config_path)  # 调试输出
+            # print("保存配置:", config)  # 调试输出
+            # print("配置路径:", self.config_path)  # 调试输出
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             return True
