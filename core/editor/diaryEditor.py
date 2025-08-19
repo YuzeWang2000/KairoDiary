@@ -6,13 +6,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QSize, QDateTime, QTime
 from PyQt6.QtGui import QFont, QAction, QTextCursor
-from core.server import textServer
 class DiaryEditor(QWidget):
     diary_saved = pyqtSignal(QDateTime) 
     open_note_signal = pyqtSignal(str)  # 新增信号用于打开笔记
-    def __init__(self, file_manager):
+    def __init__(self, file_manager, text_processor):
         super().__init__()
-        self.text_processor = textServer.TextProcessor()
+        self.text_processor = text_processor
         self.file_manager = file_manager
         self.current_date = QDate.currentDate()
         self.init_ui()

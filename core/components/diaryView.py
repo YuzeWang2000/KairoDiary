@@ -5,10 +5,11 @@ from core.editor import DiaryEditor  # 假设你有这个模块
 class DiaryView(QWidget):
     # 添加返回信号
     back_to_calendar = pyqtSignal()
-    
-    def __init__(self, file_manager):
+
+    def __init__(self, file_manager, text_processor):
         super().__init__()
         self.file_manager = file_manager
+        self.text_processor = text_processor
         self.current_date = QDate.currentDate()
         self.init_ui()
         
@@ -84,7 +85,7 @@ class DiaryView(QWidget):
         layout.addLayout(nav_layout)
         
         # 日记编辑器
-        self.editor = DiaryEditor(self.file_manager)
+        self.editor = DiaryEditor(self.file_manager, self.text_processor)
         layout.addWidget(self.editor, 1)  # 添加伸缩因子
         
         self.setLayout(layout)

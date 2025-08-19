@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QDate, pyqtSignal
 from PyQt6.QtGui import QAction
 from core.components import CalendarView, DiaryView, QuickNoteView, TodayTODOView
+from core.server.textServer import TextProcessor
 from core.window.settingsDialog import SettingsDialog
 class MainWindow(QMainWindow):
     logout_requested = pyqtSignal()
@@ -12,6 +13,15 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.username = username
         self.file_manager = file_manager
+        self.text_processor = TextProcessor()
+        # 推迟预热：让 UI 先完成显示再在后台预热模型，避免首次渲染被阻塞
+        try:
+            from PyQt6.QtCore import QTimer
+            # 100ms 后触发预热，这样主窗口有机会先完成绘制
+            QTimer.singleShot(100, self.text_processor.warm_up_model)
+        except Exception:
+            # 回退到直接调用（极少发生）
+            self.text_processor.warm_up_model()
         self.current_date = QDate.currentDate()
         self.init_ui()
 
@@ -82,14 +92,14 @@ class MainWindow(QMainWindow):
         self.calendar_view = CalendarView(self.file_manager)
         self.calendar_view.date_selected.connect(self.open_diary)
 
-        self.diary_view = DiaryView(self.file_manager)
+        self.diary_view = DiaryView(self.file_manager, self.text_processor)
         # 连接返回信号
         self.diary_view.back_to_calendar.connect(self.switch_to_calendar)
         self.diary_view.editor.diary_saved.connect(self.show_diary_saved_message)
                                                         
         self.today_view = TodayTODOView(self.file_manager)
         self.today_view.diary_saved.connect(self.show_diary_saved_message)
-        self.notes_view = QuickNoteView(self.file_manager)
+        self.notes_view = QuickNoteView(self.file_manager, self.text_processor)
         self.notes_view.note_created.connect(self.new_note_created)
         self.notes_view.note_deleted.connect(self.note_deleted)
         self.notes_view.notename_changed.connect(self.note_name_changed)

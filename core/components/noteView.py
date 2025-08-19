@@ -13,9 +13,10 @@ class QuickNoteView(QWidget):
     notename_changed = pyqtSignal(str, str) # old_filename, new_filename
     note_deleted = pyqtSignal(str)
     note_created = pyqtSignal(str)
-    def __init__(self, file_manager):
+    def __init__(self, file_manager, text_processor):
         super().__init__()
         self.file_manager = file_manager
+        self.text_processor = text_processor
         self.filter_tag = None
         self.init_ui()
     

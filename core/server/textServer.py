@@ -26,11 +26,70 @@ class TextProcessor:
         self.use_llm_first = use_llm_first
         self.enable_spell_checker = enable_spell_checker
         self.enable_translator = enable_translator
-        
-        self.available_models = self._check_available_models()
-        # 检查传统工具的可用性
-        self.spell_checker = self._init_spell_checker() if enable_spell_checker else None
-        self.translator = self._init_translator() if enable_translator else None
+
+        # 将耗时的网络/第三方初始化移到后台线程，避免在 UI 线程阻塞
+        self.available_models = []
+        self.spell_checker = None
+        self.translator = None
+
+        # 异步初始化（非阻塞）
+        try:
+            import threading
+            init_thread = threading.Thread(target=self._background_init, daemon=True)
+            init_thread.start()
+        except Exception:
+            # 如果 threading 不可用，回退到同步初始化（保证兼容性）
+            self.available_models = self._check_available_models()
+            self.spell_checker = self._init_spell_checker() if enable_spell_checker else None
+            self.translator = self._init_translator() if enable_translator else None
+
+    def _background_init(self):
+        """在后台线程中完成耗时初始化（检查可用模型、初始化拼写检查器和翻译器）"""
+        try:
+            self.available_models = self._check_available_models()
+        except Exception as e:
+            print(f"后台检查模型失败: {e}")
+
+        try:
+            if self.enable_spell_checker:
+                self.spell_checker = self._init_spell_checker()
+        except Exception as e:
+            print(f"后台初始化拼写检查器失败: {e}")
+
+        try:
+            if self.enable_translator:
+                self.translator = self._init_translator()
+        except Exception as e:
+            print(f"后台初始化翻译器失败: {e}")
+
+    def warm_up_model(self):
+        import threading
+        import time
+
+        def warm_up_task():
+            start_time = time.time()
+            print(f"正在预热模型: {self.preferred_model}")
+            data = {
+                "model": self.preferred_model,
+                "prompt": " ",
+                "stream": False
+            }
+            
+            try:
+                response = requests.post(
+                    f"{self.ollama_url}/api/generate",
+                    json=data,
+                    timeout=30
+                )
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print(f"预热完成: {response}，耗时: {elapsed_time:.2f} 秒")
+            except Exception as e:
+                print(f"预热失败: {e}")
+
+        # 在后台线程中执行预热任务
+        warm_up_thread = threading.Thread(target=warm_up_task, daemon=True)
+        warm_up_thread.start()
 
     def set_ollama_url(self, url: str):
         """设置 Ollama 服务器 URL"""
