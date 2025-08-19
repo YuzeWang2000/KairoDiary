@@ -613,50 +613,44 @@ class QuickNoteView(QWidget):
         self.open_note_editor(filename)
     
     def open_note_editor(self, filename):
-        """打开笔记编辑器"""
+        """打开笔记编辑器（使用可复用的 NoteEditor 类）"""
         print(f"打开笔记编辑器: {filename}")
         success, result = self.file_manager.load_note(filename)
         if success:
-            content = result  # 正常内容
+            content = result
         else:
-            error = result   # 异常对象
+            error = result
             if isinstance(error, FileNotFoundError):
                 content = f"文件不存在，{error}"
-                self.note_deleted.emit(filename)  # 如果文件不存在，发出删除信号
+                self.note_deleted.emit(filename)
             else:
                 content = f"加载失败，{error}"
-        editor_dialog = QDialog(self)
-        editor_dialog.setWindowTitle(f"编辑笔记: {filename}")
-        editor_dialog.resize(600, 400)
-        
-        layout = QVBoxLayout(editor_dialog)
-        editor = QTextEdit()
-        editor.setPlainText(content)
 
-        layout.addWidget(editor)
+        # 延迟导入以避免循环依赖
+        from core.editor import NoteEditor
+        from core.editor.baseEditor import BaseEditorDialog
+
+        note_editor = NoteEditor(
+            file_manager=self.file_manager,
+            filename=filename,
+            content=content,
+            text_processor=self.text_processor,
+            parent=self,
+        )
         
-        # 保存按钮
-        save_btn = QPushButton("保存")
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5D3FD3;
-                color: white;
-                padding: 8px 16px;
-                font-weight: bold;
-                border-radius: 6px;
-            }
-        """)
-        save_btn.clicked.connect(editor_dialog.accept)
-        
-        layout.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        
-        if editor_dialog.exec() == QDialog.DialogCode.Accepted:
-            # 保存笔记
-            return_path = self.file_manager.save_note(filename, editor.toPlainText())
-            if return_path is None:
-                QMessageBox.warning(self, "保存失败", "无法保存笔记内容")
-        
-        # 对话框关闭后再刷新列表，避免竞态条件
+        editor_dialog = BaseEditorDialog(
+            editor_widget=note_editor,
+            title=f"编辑笔记: {filename}",
+            parent=self
+        )
+
+        # 保存成功后刷新列表
+        note_editor.note_saved.connect(lambda _fn: self.refresh())
+        # # 对话框的文本改变
+        # note_editor.content_changed.connect(lambda text: print(f"文本已改变: {text}"))
+        editor_dialog.exec()
+
+        # 对话框关闭后刷新，防止遗漏
         self.refresh()
 
     def show_note_context_menu(self, pos):

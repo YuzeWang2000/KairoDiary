@@ -1,17 +1,18 @@
 import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QListWidget, QTextEdit, QListWidgetItem,
+    QPushButton, QListWidget, QListWidgetItem,
     QMessageBox, QInputDialog, QLabel, QMenu, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QSize, QDateTime, QTime
 from PyQt6.QtGui import QFont, QAction, QTextCursor
-class DiaryEditor(QWidget):
+from .baseEditor import BaseEditor
+
+class DiaryEditor(BaseEditor):
     diary_saved = pyqtSignal(QDateTime) 
     open_note_signal = pyqtSignal(str)  # 新增信号用于打开笔记
     def __init__(self, file_manager, text_processor):
-        super().__init__()
-        self.text_processor = text_processor
+        super().__init__(text_processor)
         self.file_manager = file_manager
         self.current_date = QDate.currentDate()
         self.init_ui()
@@ -61,9 +62,7 @@ class DiaryEditor(QWidget):
         summary_label = QLabel("每日总结")
         summary_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         
-        self.summary_edit = QTextEdit()
-        self.summary_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.summary_edit.customContextMenuRequested.connect(self.show_context_menu)
+        self.summary_edit = self.create_text_editor()
         
         save_btn = QPushButton("保存日记")
         save_btn.setStyleSheet("""
@@ -369,83 +368,6 @@ class DiaryEditor(QWidget):
         filename = item.data(Qt.ItemDataRole.UserRole)
         print(f"打开笔记: {filename}")
         self.open_note_signal.emit(filename)
-    
-    def show_context_menu(self, pos):
-        menu = QMenu(self)
-        
-        # 逐步添加标准菜单
-        standard_menu = self.summary_edit.createStandardContextMenu()
-        standard_menu.setTitle("编辑操作")
-        # 添加到主菜单
-        menu.addMenu(standard_menu)
-        menu.addSeparator()
-        # 预定义的文本处理操作
-        
-        process_menu = menu.addMenu("文本处理")
-        # 占位函数
-        placeholder_actions = [
-            ("大小写转换", lambda: self.text_process_function('upper_lower')),
-            ("首字母大写", lambda: self.text_process_function('capitalize')),
-            ("标记重点", lambda: self.text_process_function('highlight')),
-            ("拼写检查", lambda: self.text_process_function('spell_check')),
-            ("翻译", lambda: self.text_process_function('translate')),
-            ("润色", lambda: self.text_process_function('polish')),
-            ("总结", lambda: self.text_process_function('summarize'))
-        ]
-        
-        for name, func in placeholder_actions:
-            action = QAction(name, self)
-            action.triggered.connect(func)
-            process_menu.addAction(action)
-        
-        menu.exec(self.summary_edit.mapToGlobal(pos))
-    
-    def text_process_function(self, action_type):
-        cursor = self.summary_edit.textCursor()
-        selected_text = cursor.selectedText()
-        
-        if not selected_text:
-            QMessageBox.information(self, "提示", "请先选择文本")
-            return
-        
-        try:
-            # 使用 TextProcessor 处理文本
-            if action_type == 'upper_lower':
-                new_text = selected_text.swapcase()
-                method = "Traditional Method"
-            elif action_type == 'capitalize':
-                new_text = selected_text.capitalize()
-                method = "Traditional Method"
-            elif action_type == 'highlight':
-                if "<strong>" in selected_text and "</strong>" in selected_text:
-                    new_text = selected_text.replace("<strong>", "").replace("</strong>", "")
-                else:
-                    new_text = f"<strong>{selected_text}</strong>"
-                method = "Traditional Method"
-            elif action_type == 'spell_check':
-                new_text, method = self.text_processor.spell_check(selected_text)
-            elif action_type == 'translate':
-                new_text, method = self.text_processor.translate(selected_text)
-            elif action_type == 'polish':
-                new_text, method = self.text_processor.polish(selected_text)
-            elif action_type == 'summarize':
-                new_text, method = self.text_processor.summarize(selected_text)
-            else:
-                raise ValueError(f"未知操作类型: {action_type}")
-            
-            # 替换选中的文本
-            cursor.insertText(new_text)
-            
-            # 显示处理结果
-            QMessageBox.information(
-                self, 
-                "文本处理完成", 
-                f"处理类型: {action_type}\n使用方法: {method}\n\n原文: {selected_text[:50]}{'...' if len(selected_text) > 50 else ''}\n\n结果: {new_text[:50]}{'...' if len(new_text) > 50 else ''}"
-            )
-            
-        except Exception as e:
-            QMessageBox.critical(self, "处理错误", f"文本处理时发生错误:\n{str(e)}")
-            print(f"TextProcessor 错误: {e}")
 
     def add_note(self, filename):
         """
