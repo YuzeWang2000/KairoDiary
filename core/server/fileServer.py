@@ -60,8 +60,8 @@ class FileManager:
     def __save_config(self, config):
         """保存用户配置"""
         try:
-            print("保存配置:", config)  # 调试输出
-            print("配置路径:", self.config_path)  # 调试输出
+            # print("保存配置:", config)  # 调试输出
+            # print("配置路径:", self.config_path)  # 调试输出
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             return True
@@ -191,16 +191,27 @@ class FileManager:
                 return None
     
     def load_note(self, filename):
-        """加载笔记内容"""
+        """加载笔记内容
+        
+        Args:
+            filename (str): 笔记文件名
+            
+        Returns:
+            tuple: (success: bool, result: str | Exception)
+            - success=True: result 为笔记内容
+            - success=False: result 为异常对象
+        """
         path = self.get_note_path(filename)
+        
+        if not os.path.exists(path):
+            return False, FileNotFoundError(f"笔记文件 {filename} 不存在")
+        
         try:
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            return "无法加载笔记内容"
+            with open(path, 'r', encoding='utf-8') as f:
+                return True, f.read()
         except Exception as e:
             print(f"加载笔记失败: {e}")
-            return "无法加载笔记内容"
+            return False, e
     
     def list_notes(self):
         """列出所有笔记文件"""
@@ -231,3 +242,70 @@ class FileManager:
                         continue
         
         return dates
+    
+    def get_note_date_from_filename(self, filename):
+        """从笔记文件名中解析日期
+
+        Args:
+            filename (str): 笔记文件名，格式如 "20250817_测试_#项目.md"
+        Returns:
+            tuple: (success: bool, result: QDate | None)
+        """
+        try:
+            # 使用下划线分割文件名
+            parts = filename.split('_')
+
+            if parts and len(parts[0]) == 8 and parts[0].isdigit():
+                date_str = parts[0]  # 获取第一部分的日期字符串
+                year = int(date_str[:4])
+                month = int(date_str[4:6])
+                day = int(date_str[6:8])
+                return True,(year, month, day)
+            else:
+                print(f"无法从文件名中解析日期: {filename}")
+                return False, None
+        except Exception as e:
+            print(f"解析日期失败: {e}")
+            return False, None
+        
+    def is_todo_done(self, date):
+        diary = self.load_diary(date)
+        if not diary:
+            return True
+
+        lines = diary.splitlines()
+        # 找到 TODO 段开始行
+        start_idx = None
+        for i, line in enumerate(lines):
+            if line.strip().lower().startswith("## todo"):
+                start_idx = i + 1
+                break
+
+        if start_idx is None:
+            # 没有 TODO 段，视为已完成
+            return True
+
+        found_any = False
+        # 遍历 TODO 段，直到下一个二级标题或文件结束
+        for line in lines[start_idx:]:
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith("## "):
+                break  # 下一节开始，结束解析
+            # 支持 - [ ], * [ ], + [ ] 等格式
+            if any(s.lower().startswith(prefix) for prefix in ("- [", "* [", "+ [")):
+                found_any = True
+                try:
+                    lbr = s.index('[')
+                    rbr = s.index(']', lbr + 1)
+                    status = s[lbr + 1:rbr].strip().lower()
+                except ValueError:
+                    # 格式异常，认为未完成
+                    return False
+                # 认定 'x' 或 '✔' 或 '1' 为已完成，其余为未完成
+                if status not in ("x", "✔", "1"):
+                    return False
+
+        # 如果没有找到任何待办项，视为已完成；否则所有项均为已完成时返回 True
+        return True

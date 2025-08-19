@@ -123,7 +123,7 @@ uv run python setup.py py2app
 
 **方法二：使用 PyInstaller（推荐，更简单）**
 ```bash
-uv run pyinstaller --onefile --windowed --name="KairoDiary" --icon="assets/KairoDiary.icns" --add-data="assets:assets" main.py
+uv run pyinstaller --windowed --name="KairoDiary" --icon="assets/KairoDiary.icns" --add-data="assets:assets" main.py
 ```
 
 > **注意**：PyInstaller 方法更简单，且会自动处理图标和依赖关系，确保应用在 Dock 中正确显示图标。

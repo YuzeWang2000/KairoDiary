@@ -10,11 +10,13 @@ from PyQt6.QtCore import Qt, QDate, pyqtSignal, QDateTime
 from PyQt6.QtGui import QFont, QIcon
 
 class QuickNoteView(QWidget):
-    note_saved = pyqtSignal(QDateTime)
+    notename_changed = pyqtSignal(str, str) # old_filename, new_filename
+    note_deleted = pyqtSignal(str)
     note_created = pyqtSignal(str)
-    def __init__(self, file_manager):
+    def __init__(self, file_manager, text_processor):
         super().__init__()
         self.file_manager = file_manager
+        self.text_processor = text_processor
         self.filter_tag = None
         self.init_ui()
     
@@ -75,7 +77,6 @@ class QuickNoteView(QWidget):
                 font-size: 14px;
                 border: 1px solid #E0E0E0;
                 border-radius: 6px;
-                background-color: #FFFFFF;
             }
         """)
         self.search_input.textChanged.connect(self.refresh)
@@ -143,7 +144,6 @@ class QuickNoteView(QWidget):
         self.notes_list = QListWidget()
         self.notes_list.setStyleSheet("""
             QListWidget {
-                background-color: #FFFFFF;
                 border: 1px solid #E0E0E0;
                 border-radius: 8px;
             }
@@ -251,7 +251,7 @@ class QuickNoteView(QWidget):
             
             title_label = QLabel(note_title if note_title else "未命名笔记")
             title_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-            title_label.setStyleSheet("color: #212121;")
+            # title_label.setStyleSheet("color: #212121;")
             title_layout.addWidget(title_label)
             
             title_layout.addStretch()
@@ -613,43 +613,44 @@ class QuickNoteView(QWidget):
         self.open_note_editor(filename)
     
     def open_note_editor(self, filename):
-        """打开笔记编辑器"""
+        """打开笔记编辑器（使用可复用的 NoteEditor 类）"""
         print(f"打开笔记编辑器: {filename}")
-        editor_dialog = QDialog(self)
-        editor_dialog.setWindowTitle(f"编辑笔记: {filename}")
-        editor_dialog.resize(600, 400)
-        
-        layout = QVBoxLayout(editor_dialog)
-        editor = QTextEdit()
+        success, result = self.file_manager.load_note(filename)
+        if success:
+            content = result
+        else:
+            error = result
+            if isinstance(error, FileNotFoundError):
+                content = f"文件不存在，{error}"
+                self.note_deleted.emit(filename)
+            else:
+                content = f"加载失败，{error}"
 
+        # 延迟导入以避免循环依赖
+        from core.editor import NoteEditor
+        from core.editor.baseEditor import BaseEditorDialog
 
-        content = self.file_manager.load_note(filename)  # 确保文件存在
-        editor.setPlainText(content)
+        note_editor = NoteEditor(
+            file_manager=self.file_manager,
+            filename=filename,
+            content=content,
+            text_processor=self.text_processor,
+            parent=self,
+        )
+        
+        editor_dialog = BaseEditorDialog(
+            editor_widget=note_editor,
+            title=f"编辑笔记: {filename}",
+            parent=self
+        )
 
-        layout.addWidget(editor)
-        
-        # 保存按钮
-        save_btn = QPushButton("保存")
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5D3FD3;
-                color: white;
-                padding: 8px 16px;
-                font-weight: bold;
-                border-radius: 6px;
-            }
-        """)
-        save_btn.clicked.connect(editor_dialog.accept)
-        
-        layout.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        
-        if editor_dialog.exec() == QDialog.DialogCode.Accepted:
-            # 保存笔记
-            return_path = self.file_manager.save_note(filename, editor.toPlainText())
-            if return_path is None:
-                QMessageBox.warning(self, "保存失败", "无法保存笔记内容")
-        
-        # 对话框关闭后再刷新列表，避免竞态条件
+        # 保存成功后刷新列表
+        note_editor.note_saved.connect(lambda _fn: self.refresh())
+        # # 对话框的文本改变
+        # note_editor.content_changed.connect(lambda text: print(f"文本已改变: {text}"))
+        editor_dialog.exec()
+
+        # 对话框关闭后刷新，防止遗漏
         self.refresh()
 
     def show_note_context_menu(self, pos):
@@ -706,6 +707,7 @@ class QuickNoteView(QWidget):
             try:
                 os.rename(note_path, new_path)
                 self.refresh()
+                self.notename_changed.emit(filename, new_filename)
             except Exception as e:
                 QMessageBox.warning(self, "重命名失败", f"无法重命名笔记: {str(e)}")
     
@@ -725,6 +727,7 @@ class QuickNoteView(QWidget):
             try:
                 os.remove(note_path)
                 self.refresh()
+                self.note_deleted.emit(os.path.basename(note_path))
             except:
                 QMessageBox.warning(self, "删除失败", "无法删除笔记")
     
@@ -819,6 +822,7 @@ class QuickNoteView(QWidget):
             self.refresh()
             item.setSelected(True)  # 重新选中同一项目
             self.new_tag_input.clear()
+            self.notename_changed.emit(old_filename, new_filename)
         except:
             QMessageBox.warning(self, "操作失败", "无法添加标签")
     
@@ -848,5 +852,6 @@ class QuickNoteView(QWidget):
             os.rename(note_path, new_path)
             self.refresh()
             item.setSelected(True)  # 重新选中同一项目
+            self.notename_changed.emit(old_filename, new_filename)
         except:
             QMessageBox.warning(self, "操作失败", "无法移除标签")

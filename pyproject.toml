@@ -5,7 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "googletrans>=4.0.2",
     "py2app>=0.28.8",
     "pyinstaller>=6.15.0",
     "pyqt6>=6.9.1",
+    "pyspellchecker>=0.8.3",
+    "requests>=2.31.0",
 ]

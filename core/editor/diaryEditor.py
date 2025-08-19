@@ -1,17 +1,18 @@
 import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QListWidget, QTextEdit, QListWidgetItem,
+    QPushButton, QListWidget, QListWidgetItem,
     QMessageBox, QInputDialog, QLabel, QMenu, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal, QSize, QDateTime, QTime
 from PyQt6.QtGui import QFont, QAction, QTextCursor
+from .baseEditor import BaseEditor
 
-class DiaryEditor(QWidget):
+class DiaryEditor(BaseEditor):
     diary_saved = pyqtSignal(QDateTime) 
     open_note_signal = pyqtSignal(str)  # 新增信号用于打开笔记
-    def __init__(self, file_manager):
-        super().__init__()
+    def __init__(self, file_manager, text_processor):
+        super().__init__(text_processor)
         self.file_manager = file_manager
         self.current_date = QDate.currentDate()
         self.init_ui()
@@ -61,9 +62,7 @@ class DiaryEditor(QWidget):
         summary_label = QLabel("每日总结")
         summary_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         
-        self.summary_edit = QTextEdit()
-        self.summary_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.summary_edit.customContextMenuRequested.connect(self.show_context_menu)
+        self.summary_edit = self.create_text_editor()
         
         save_btn = QPushButton("保存日记")
         save_btn.setStyleSheet("""
@@ -369,59 +368,6 @@ class DiaryEditor(QWidget):
         filename = item.data(Qt.ItemDataRole.UserRole)
         print(f"打开笔记: {filename}")
         self.open_note_signal.emit(filename)
-    
-    def show_context_menu(self, pos):
-        menu = QMenu(self)
-        
-        # 逐步添加标准菜单
-        standard_menu = self.summary_edit.createStandardContextMenu()
-        standard_menu.setTitle("编辑操作")
-        # 添加到主菜单
-        menu.addMenu(standard_menu)
-        menu.addSeparator()
-        # 预定义的文本处理操作
-        
-        process_menu = menu.addMenu("文本处理")
-        # process_menu.setIcon(QIcon.fromTheme("edit-select"))
-        # 占位函数
-        placeholder_actions = [
-            ("大写转换", lambda: self.text_process_function('upper')),
-            ("小写转换", lambda: self.text_process_function('lower')),
-            ("标记重点", lambda: self.text_process_function('highlight')),
-            ("AI摘要", lambda: self.text_process_function('summarize')),
-            # ("插入日期时间", lambda: self.text_process_function('insert_datetime')),
-            # ("字数统计", lambda: self.text_process_function('show_word_count')),
-        ]
-        
-        for name, func in placeholder_actions:
-            action = QAction(name, self)
-            action.triggered.connect(func)
-            process_menu.addAction(action)
-        
-        menu.exec(self.summary_edit.mapToGlobal(pos))
-    
-    def text_process_function(self, action_type):
-        cursor = self.summary_edit.textCursor()
-        selected_text = cursor.selectedText()
-        
-        if not selected_text:
-            QMessageBox.information(self, "提示", "请先选择文本")
-            return
-            
-        # 占位实现
-        if action_type == 'upper':
-            new_text = selected_text.upper()
-        elif action_type == 'lower':
-            new_text = selected_text.lower()
-        elif action_type == 'highlight':
-            new_text = f"<strong>{selected_text}</strong>"
-        else:  # summarize
-            new_text = f"[AI摘要] {selected_text[:50]}..."
-        
-        cursor.insertText(new_text)
-        
-        # 实际应用中替换为真正的处理逻辑
-        QMessageBox.information(self, "文本处理", f"已应用: {action_type} 函数\n\n实际开发中需添加处理逻辑")
 
     def add_note(self, filename):
         """
@@ -451,6 +397,27 @@ class DiaryEditor(QWidget):
         
         # 保存日记更新
         self.save_diary()
+
+    def remove_note(self, filename):
+        """
+        从笔记列表中移除指定的笔记
+        参数:
+            filename: 要移除的笔记文件名
+        """
+        for i in range(self.note_list.count()):
+            item = self.note_list.item(i)
+            stored_filename = item.data(Qt.ItemDataRole.UserRole)
+            
+            if stored_filename == filename:
+                # 找到匹配的项，删除它
+                self.note_list.takeItem(i)
+                print(f"已从日记中移除笔记: {filename}")
+                
+                # 保存日记更新
+                self.save_diary()
+                break
+        else:
+            print(f"未在当前日记中找到笔记: {filename}")
 
     def save_diary(self):
         # 构建Markdown内容
